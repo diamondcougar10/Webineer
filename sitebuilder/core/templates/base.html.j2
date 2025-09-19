@@ -1,0 +1,53 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} â€” {{ site_name }}</title>
+  <link rel="stylesheet" href="{{ stylesheet_path }}">
+  <style>
+    /* Basic reset */
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; line-height: 1.6; color: #222; }
+    a { text-decoration: none; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 1rem; }
+
+    .site-header { border-bottom: 1px solid #e5e5e5; background: #fafafa; position: sticky; top: 0; }
+    .site-name { margin: 0; font-size: 1.25rem; }
+    .site-nav ul { list-style: none; display: flex; gap: .75rem; padding-left: 0; margin: .5rem 0 0; flex-wrap: wrap; }
+    .site-nav a { padding: .4rem .6rem; border-radius: .4rem; border: 1px solid transparent; }
+    .site-nav a:hover { background: #f0f0f0; }
+
+    .site-footer { border-top: 1px solid #e5e5e5; background: #fafafa; margin-top: 3rem; }
+    .hero { padding: 3rem 0; text-align: center; }
+    .btn { display: inline-block; padding: .6rem 1rem; border: 1px solid #222; border-radius: .4rem; }
+    .grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    img { max-width: 100%; height: auto; display: block; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <h1 class="site-name">{{ site_name }}</h1>
+      <nav class="site-nav">
+        <ul>
+          {% for p in pages %}
+            <li><a href="{{ p.filename }}">{{ p.title }}</a></li>
+          {% endfor %}
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {{ content | safe }}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <small>Â© {{ site_name }} â€” Built with PyQt SiteBuilder</small>
+    </div>
+  </footer>
+</body>
+</html>

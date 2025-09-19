@@ -1,0 +1,4 @@
+﻿/* Starter theme overrides go here.
+   This file is NOT used directly at runtime; it's here as a reference.
+   The running app writes your current CSS as `assets/css/style.css` in the export. */
+body { background: white; }

@@ -1,0 +1,10 @@
+﻿.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+build/
+dist/
+*.spec
+*.siteproj
+.DS_Store

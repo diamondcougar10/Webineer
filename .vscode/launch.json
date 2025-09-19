@@ -1,0 +1,13 @@
+﻿{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run PyQt Site Builder",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}\\MainApp.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
