@@ -1,5 +1,6 @@
-﻿"""
-Webineer Site Builder — Enhanced single-file PyQt6 app
+﻿
+"""
+Webineer Site Builder — Enhanced single-file PyQt6 app (Pylance-friendly)
 Features:
 - Pages panel (add/remove)
 - Editors: Page HTML + Global CSS
@@ -10,6 +11,8 @@ Features:
 - Live preview (Qt WebEngine)
 - Save/Open .siteproj (JSON)
 - Export a static site with Jinja2 template + copied assets
+
+This version adds precise typing/casts and None-guards to silence Pylance warnings.
 """
 
 from __future__ import annotations
@@ -22,7 +25,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, asdict, field
 from pathlib import Path
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, cast
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -100,80 +103,22 @@ DEFAULT_FONTS = dict(
 )
 
 DEFAULT_INDEX_HTML = """\
-<section class='hero'>
-  <p class='eyebrow'>Build in minutes</p>
-  <h2 class='hero-title'>Launch something memorable.</h2>
-  <p class='hero-lede'>Webineer gives you polished building blocks so you can focus on your story.</p>
-  <div class='hero-actions'>
-    <a class='btn btn-primary btn-lg' href='#features'>Create my site</a>
-    <a class='btn btn-ghost btn-lg' href='#cta'>Explore layout ideas</a>
-  </div>
+<section class="hero">
+  <h2>Welcome!</h2>
+  <p class="muted">Build beautiful sites with zero fuss.</p>
+  <a class="btn btn-primary" href="#">Get started</a>
 </section>
-<section id='features' class='section'>
-  <div class='container-narrow stack'>
-    <h3 class='text-center'>Handy building blocks</h3>
-    <p class='muted text-center'>Use snippets for testimonials, pricing tables, image grids, and more&mdash;skip blank-page syndrome.</p>
-  </div>
-  <div class='feature-grid'>
-    <div class='card stack'>
-      <span class='badge'>01</span>
-      <h4>Pick a template</h4>
-      <p>Start from a curated layout that already respects spacing and typography.</p>
-    </div>
-    <div class='card stack'>
-      <span class='badge'>02</span>
-      <h4>Mix in sections</h4>
-      <p>Insert ready-made hero, pricing, FAQ, and contact sections right from the menu.</p>
-    </div>
-    <div class='card stack'>
-      <span class='badge'>03</span>
-      <h4>Publish anywhere</h4>
-      <p>Export a static site and host it on GitHub Pages, Netlify, or any static host.</p>
-    </div>
-  </div>
-</section>
-<section class='section-alt'>
-  <div class='split'>
-    <div class='card stack'>
-      <h3>Organize your content</h3>
-      <p class='muted'>Use multiple pages with automatic navigation and keep shared styles in one place.</p>
-      <ul class='list-check'>
-        <li>Preview updates instantly</li>
-        <li>Store assets alongside your project</li>
-        <li>Export clean HTML + CSS bundles</li>
-      </ul>
-    </div>
-    <div class='card stack'>
-      <blockquote class='quote'>&ldquo;Webineer helped us launch a polished microsite in an afternoon.&rdquo;</blockquote>
-      <p class='quote-attribution'>&mdash; Taylor, marketing lead</p>
-      <p class='muted'>Swap this testimonial with your own customer story.</p>
-    </div>
-  </div>
-</section>
-<section id='cta' class='section text-center'>
-  <h3>Ready to share your site?</h3>
-  <p class='muted'>Tweak the copy, add a few assets, and publish your pages on the web in minutes.</p>
-  <div class='hero-actions'>
-    <a class='btn btn-primary btn-lg' href='#'>Export sample</a>
-    <a class='btn btn-outline btn-lg' href='#'>View publishing tips</a>
+<section>
+  <h3>Features</h3>
+  <div class="grid">
+    <div class="card"><h4>Fast</h4><p>Edit and preview instantly.</p></div>
+    <div class="card"><h4>Simple</h4><p>HTML in, static site out.</p></div>
+    <div class="card"><h4>Portable</h4><p>Publish anywhere.</p></div>
   </div>
 </section>
 """
 
-
 # ---------------------- Data Model & Persistence ----------------------
-
-
-
-@dataclass
-class TemplateSpec:
-    name: str
-    description: str
-    pages: List[Tuple[str, str, str]]
-    palette: Optional[Dict[str, str]] = None
-    fonts: Optional[Dict[str, str]] = None
-    extra_css: str = ""
-    include_helpers: bool = True
 
 @dataclass
 class Page:
@@ -230,7 +175,6 @@ def load_project(path: str | Path) -> Project:
 # ---------------------- CSS Generation & Helpers ----------------------
 
 CSS_HELPERS_SENTINEL = "/* === WEBINEER CSS HELPERS (DO NOT DUPLICATE) === */"
-TEMPLATE_EXTRA_SENTINEL = "/* === WEBINEER TEMPLATE EXTRA CSS === */"
 
 THEME_PRESETS = {
     "Classic (Blue)": dict(primary="#3b82f6", surface="#ffffff", text="#222222"),
@@ -434,682 +378,6 @@ def svg_placeholder(width=800, height=400, bg="#e5e7eb", fg="#6b7280", label=Non
     data = urllib.parse.quote(svg)
     return f"<img src='data:image/svg+xml;utf8,{data}' alt='{label}' width='{width}' height='{height}'>"
 
-
-PROJECT_TEMPLATES: Dict[str, TemplateSpec] = {
-    "starter": TemplateSpec(
-        name="Starter landing",
-        description="Hero, features, testimonial, and publishing CTA.",
-        pages=[
-            (
-                "index.html",
-                "Home",
-                "".join([
-                    html_section_hero()
-                        .replace("Welcome!", "Launch something memorable.")
-                        .replace("Build beautiful sites with zero fuss.", "Tweak copy, add assets, and hit publish in minutes.")
-                        .replace("Get started", "Preview sections"),
-                    html_section_features()
-                        .replace("Features", "Handy building blocks"),
-                    html_section_two_column()
-                        .replace("Headline", "Share social proof")
-                        .replace("Explain your value proposition. Keep it short and focused.", "Drop in a customer quote or quick case study to build trust before your CTA."),
-                    html_section_cta()
-                        .replace("Ready to get started?", "Ready to share your site?")
-                        .replace("Create my site", "Export this project"),
-                ]),
-            ),
-        ],
-    ),
-    "portfolio": TemplateSpec(
-        name="Portfolio spotlight",
-        description="Introduce yourself, highlight a project, and invite conversations.",
-        pages=[
-            (
-                "index.html",
-                "Home",
-                "".join([
-                    html_section_hero()
-                        .replace("Welcome!", "Hi, I'm Riley.")
-                        .replace("Build beautiful sites with zero fuss.", "I design onboarding flows that turn users into champions.")
-                        .replace("Get started", "View case studies"),
-                    html_section_two_column()
-                        .replace("Headline", "Case study highlight")
-                        .replace("Explain your value proposition. Keep it short and focused.", "Summarize a recent win and link out to a detailed write-up.")
-                        .replace("Learn more", "Read the project"),
-                    html_section_features()
-                        .replace("Features", "What I love to work on")
-                        .replace("Speed", "Product strategy")
-                        .replace("Simplicity", "End-to-end design")
-                        .replace("Portability", "Research & facilitation"),
-                    html_section_cta()
-                        .replace("Ready to get started?", "Need a design partner?")
-                        .replace("Create my site", "Start a conversation"),
-                ]),
-            ),
-        ],
-    ),
-    "resource": TemplateSpec(
-        name="Resource hub",
-        description="Organize guides, troubleshooting steps, and FAQs for your audience.",
-        pages=[
-            (
-                "index.html",
-                "Overview",
-                "".join([
-                    html_section_hero()
-                        .replace("Welcome!", "Create a helpful resource hub")
-                        .replace("Build beautiful sites with zero fuss.", "Collect how-tos, release notes, and quick answers in one place.")
-                        .replace("Get started", "Browse guides"),
-                    html_section_features()
-                        .replace("Features", "Popular resources")
-                        .replace("Speed", "Quick start guide")
-                        .replace("Simplicity", "Troubleshooting")
-                        .replace("Portability", "Release updates"),
-                    html_section_faq()
-                        .replace("Does this need hosting?", "How do I add a new article?")
-                        .replace("Can I use my own CSS?", "Can I embed screenshots?")
-                        .replace(
-                            "You can host anywhere that serves static files (GitHub Pages, Netlify, S3...).",
-                            "Use the Pages panel to add a page, rename it, and drop in content sections.",
-                        )
-                        .replace(
-                            "Yes, edit the Styles tab or paste your stylesheet.",
-                            "Absolutely. Upload images in the Assets tab and reference them in your guide.",
-                        ),
-                    html_section_cta()
-                        .replace("Ready to get started?", "Need help fast?")
-                        .replace("Create my site", "Email support"),
-                ]),
-            ),
-        ],
-    ),
-}
-DEFAULT_TEMPLATE_KEY = "starter"
-
-
-STARTER_TEMPLATE_CSS = """/* Template: Starter Landing */
-.hero {
-  text-align: center;
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
-  box-shadow: 0 16px 48px rgba(15, 23, 42, .12);
-}
-.hero-actions .btn {
-  min-width: 11rem;
-}
-.feature-grid .card {
-  transition: transform .18s ease, box-shadow .18s ease;
-}
-.feature-grid .card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 22px 45px rgba(15, 23, 42, .18);
-}
-.split .card {
-  background: var(--color-surface);
-}
-"""
-
-PORTFOLIO_INDEX_HTML = """<section class="hero portfolio-hero">
-  <div class="hero-inner">
-    <p class="eyebrow">Product designer</p>
-    <h2>Hi, I'm Riley Stone.</h2>
-    <p class="hero-lede">I help SaaS teams craft human-centered onboarding and growth experiences.</p>
-    <div class="hero-actions">
-      <a class="btn btn-primary btn-lg" href="#projects">View projects</a>
-      <a class="btn btn-soft btn-lg" href="projects.html">Case studies</a>
-    </div>
-  </div>
-  <div class="hero-image">
-    <div class="profile-placeholder">Add your portrait</div>
-  </div>
-</section>
-<section id="projects" class="section">
-  <div class="stack text-center max-w-lg">
-    <p class="eyebrow">Selected work</p>
-    <h3>Showcase impactful projects</h3>
-    <p class="text-muted">Swap these cards with your own case studies and highlight outcomes.</p>
-  </div>
-  <div class="portfolio-grid">
-    <article class="project-card stack">
-      <h4>Checkout flow redesign</h4>
-      <p class="text-muted">Increased conversions 18% for a developer tools platform.</p>
-      <a class="btn btn-ghost" href="projects.html#checkout">Read the case study</a>
-    </article>
-    <article class="project-card stack">
-      <h4>Analytics dashboard</h4>
-      <p class="text-muted">Delivered an insights hub the whole team can trust.</p>
-      <a class="btn btn-ghost" href="projects.html#dashboard">View highlights</a>
-    </article>
-    <article class="project-card stack">
-      <h4>Onboarding refresh</h4>
-      <p class="text-muted">Cut time-to-value in half with contextual walkthroughs.</p>
-      <a class="btn btn-ghost" href="projects.html#onboarding">See outcomes</a>
-    </article>
-  </div>
-</section>
-<section class="section-alt">
-  <div class="timeline">
-    <article class="timeline-item">
-      <h4>Current</h4>
-      <p class="text-muted">Design lead at BrightStack, shaping onboarding for 2M users.</p>
-    </article>
-    <article class="timeline-item">
-      <h4>Previously</h4>
-      <p class="text-muted">Product designer at Northwind, focused on growth experimentation.</p>
-    </article>
-    <article class="timeline-item">
-      <h4>Tools</h4>
-      <p class="text-muted">Figma, FigJam, Maze, Miro, Notion, Webflow, HTML/CSS.</p>
-    </article>
-  </div>
-</section>
-<section class="section">
-  <div class="contact-card stack text-center">
-    <h3>Let's build something great</h3>
-    <p class="text-muted">Share a challenge or say hello at <a href="mailto:riley@example.com">riley@example.com</a>.</p>
-    <div class="hero-actions">
-      <a class="btn btn-primary btn-lg" href="mailto:riley@example.com">Book a call</a>
-      <a class="btn btn-outline btn-lg" href="projects.html">See full portfolio</a>
-    </div>
-  </div>
-</section>
-"""
-
-PORTFOLIO_PROJECTS_HTML = """<section class="section container-narrow" id="checkout">
-  <h2>Selected case studies</h2>
-  <article class="case-study stack">
-    <h3>Checkout flow redesign</h3>
-    <p class="text-muted">A five-week sprint to simplify purchasing for a developer tools platform.</p>
-    <div class="stack">
-      <h4>Outcome</h4>
-      <ul class="list-check">
-        <li>18% increase in conversions</li>
-        <li>Reduced time-to-purchase by 42 seconds</li>
-        <li>Streamlined plan selection for teams</li>
-      </ul>
-    </div>
-  </article>
-  <hr class="divider">
-  <article class="case-study stack" id="dashboard">
-    <h3>Analytics dashboard</h3>
-    <p class="text-muted">Turning dense data into actionable insights for customer success teams.</p>
-    <p>Introduce saved views, smarter defaults, and contextual glossary tips to keep teams aligned.</p>
-  </article>
-  <hr class="divider">
-  <article class="case-study stack" id="onboarding">
-    <h3>Onboarding refresh</h3>
-    <p class="text-muted">Contextual in-app education that cut time-to-value in half.</p>
-    <p>Add your own screenshots, quotes, and learnings here.</p>
-  </article>
-</section>
-"""
-
-PORTFOLIO_TEMPLATE_CSS = """/* Template: Portfolio Spotlight */
-.portfolio-hero {
-  display: grid;
-  gap: 2.5rem;
-  padding-block: 3.5rem;
-}
-.hero-inner {
-  display: grid;
-  gap: 1rem;
-}
-.hero-image {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.profile-placeholder {
-  width: 220px;
-  height: 220px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--color-primary) 18%, var(--color-surface));
-  color: var(--color-primary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 600;
-  letter-spacing: .05em;
-  text-transform: uppercase;
-}
-.portfolio-grid {
-  margin-top: 2.5rem;
-}
-.project-card {
-  border-radius: var(--radius);
-  border: 1px solid rgba(15, 23, 42, .08);
-  padding: 1.5rem;
-  background: var(--color-surface);
-  box-shadow: 0 18px 50px rgba(15, 23, 42, .1);
-}
-.timeline-item {
-  background: var(--color-surface);
-  padding: 1.5rem 1.75rem;
-  border-radius: var(--radius);
-  box-shadow: 0 16px 40px rgba(15, 23, 42, .12);
-}
-.contact-card {
-  padding: 2.5rem;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
-  box-shadow: 0 20px 48px rgba(15, 23, 42, .16);
-}
-@media (min-width: 840px) {
-  .portfolio-hero {
-    grid-template-columns: 3fr 2fr;
-    align-items: center;
-  }
-}
-"""
-
-RESOURCE_INDEX_HTML = """<section class="hero docs-hero">
-  <h2>Create a helpful resource hub</h2>
-  <p class="hero-lede">Share product guides, onboarding steps, and FAQs with a clean, readable layout.</p>
-  <div class="hero-actions">
-    <a class="btn btn-primary btn-lg" href="#articles">Browse guides</a>
-    <a class="btn btn-soft btn-lg" href="guide.html">Read the quick start</a>
-  </div>
-</section>
-<section id="articles" class="section">
-  <div class="docs-grid">
-    <article class="doc-card stack">
-      <h3>Getting started</h3>
-      <p class="text-muted">Introduce your product and explain what to expect.</p>
-      <a class="btn btn-outline" href="guide.html#basics">View outline</a>
-    </article>
-    <article class="doc-card stack">
-      <h3>Troubleshooting</h3>
-      <p class="text-muted">List common issues with quick fixes your users can try.</p>
-      <a class="btn btn-outline" href="guide.html#faq">Jump to FAQs</a>
-    </article>
-    <article class="doc-card stack">
-      <h3>Release notes</h3>
-      <p class="text-muted">Keep your audience updated with the latest improvements.</p>
-      <a class="btn btn-outline" href="#">Add a changelog</a>
-    </article>
-  </div>
-</section>
-<section class="section-alt">
-  <div class="split">
-    <div class="card stack">
-      <h3>Keep things organized</h3>
-      <p class="text-muted">Group related pages, surface next steps, and cross-link key resources.</p>
-      <ul class="list-inline">
-        <li>Callout tips</li>
-        <li>Step-by-step tasks</li>
-        <li>Release updates</li>
-      </ul>
-    </div>
-    <div class="card stack">
-      <h3>Share quick answers</h3>
-      <details class="faq">
-        <summary>How do I add a new page?</summary>
-        <p>Use the Pages panel to add one, rename it, and start editing the HTML.</p>
-      </details>
-      <details class="faq">
-        <summary>Can I paste my own CSS?</summary>
-        <p>Yes&mdash;drop it into the Styles tab or use the Design tab to generate a theme first.</p>
-      </details>
-    </div>
-  </div>
-</section>
-"""
-
-RESOURCE_GUIDE_HTML = """<section class="section container-narrow" id="basics">
-  <h2>Quick start guide</h2>
-  <p class="text-muted">Use this outline to document a process or product quickly.</p>
-  <ol class="stepper">
-    <li>
-      <h3>Explain the goal</h3>
-      <p>Start with a short description of what someone will achieve and why it matters.</p>
-    </li>
-    <li>
-      <h3>List the steps</h3>
-      <p>Break the process into clear, numbered steps. Screenshots help readers stay oriented.</p>
-    </li>
-    <li>
-      <h3>Highlight best practices</h3>
-      <p>Call out gotchas, shortcuts, or recommended tools to stay on track.</p>
-    </li>
-  </ol>
-  <aside class="callout"><strong>Tip:</strong> Link to supporting docs or video tutorials so readers can dive deeper.</p>
-  <section class="section-tight" id="faq">
-    <h3>FAQs</h3>
-    <ul class="list-check">
-      <li>How do I share this page? &mdash; Export and upload it to your static host.</li>
-      <li>Can I add more sections? &mdash; Duplicate the markup and tailor it to your product.</li>
-      <li>Where do I edit styles? &mdash; Use the Styles tab or the Design tab for theme tweaks.</li>
-    </ul>
-  </section>
-</section>
-"""
-
-RESOURCE_TEMPLATE_CSS = """/* Template: Resource Hub */
-.docs-hero {
-  text-align: center;
-  padding-block: 3rem;
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
-  box-shadow: 0 18px 40px rgba(15, 23, 42, .12);
-}
-.docs-grid {
-  margin-top: 2.5rem;
-}
-.doc-card {
-  border-radius: var(--radius);
-  border: 1px solid rgba(15, 23, 42, .08);
-  padding: 1.5rem;
-  background: var(--color-surface);
-  box-shadow: 0 16px 45px rgba(15, 23, 42, .1);
-}
-.callout {
-  margin-top: 2.5rem;
-}
-.faq summary {
-  font-weight: 600;
-}
-"""
-
-def css_helpers_block() -> str:
-    css = """\n:root {
-  --sp-1: .25rem;
-  --sp-2: .5rem;
-  --sp-3: 1rem;
-  --sp-4: 1.5rem;
-  --sp-5: 2rem;
-  --sp-6: 3rem;
-}
-.section {
-  padding-block: var(--sp-6);
-}
-.section-tight {
-  padding-block: var(--sp-5);
-}
-.section-alt {
-  padding-block: var(--sp-6);
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
-}
-.stack {
-  display: grid;
-  gap: var(--sp-3);
-}
-.stack-lg {
-  display: grid;
-  gap: var(--sp-4);
-}
-.split {
-  display: grid;
-  gap: var(--sp-4);
-}
-@media (min-width: 768px) {
-  .split {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: center;
-  }
-}
-.hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sp-3);
-}
-.feature-grid {
-  display: grid;
-  gap: var(--sp-4);
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  margin-top: var(--sp-5);
-}
-.docs-grid {
-  display: grid;
-  gap: var(--sp-4);
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-.portfolio-grid {
-  display: grid;
-  gap: var(--sp-3);
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-.timeline {
-  display: grid;
-  gap: var(--sp-3);
-}
-.timeline-item {
-  border-left: 3px solid var(--color-primary);
-  padding-left: calc(var(--sp-3) + .35rem);
-}
-.case-study {
-  display: grid;
-  gap: var(--sp-3);
-}
-.grid-auto {
-  display: grid;
-  gap: var(--sp-3);
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-}
-.stepper {
-  list-style: none;
-  padding-left: 0;
-  display: grid;
-  gap: var(--sp-3);
-  counter-reset: step;
-}
-.stepper li {
-  border-left: 3px solid var(--color-primary);
-  padding-left: calc(var(--sp-3) + .35rem);
-  position: relative;
-}
-.stepper li::before {
-  counter-increment: step;
-  content: counter(step, decimal-leading-zero);
-  position: absolute;
-  left: calc(-1 * var(--sp-5));
-  top: 0;
-  font-weight: 600;
-  color: var(--color-primary);
-}
-.badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 18%, var(--color-surface));
-  color: var(--color-primary);
-  font-weight: 600;
-  letter-spacing: .06em;
-}
-.list-check {
-  list-style: none;
-  padding-left: 0;
-  display: grid;
-  gap: var(--sp-2);
-}
-.list-check li::before {
-  content: "\2713";
-  margin-right: .5rem;
-  color: var(--color-primary);
-  font-weight: 600;
-}
-.list-inline {
-  list-style: none;
-  padding-left: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-}
-.list-inline li {
-  background: color-mix(in srgb, var(--color-primary) 15%, var(--color-surface));
-  padding: .35rem .85rem;
-  border-radius: 999px;
-  font-size: .9rem;
-}
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: .18em;
-  font-size: .75rem;
-  margin-bottom: var(--sp-2);
-  display: inline-block;
-  opacity: .75;
-}
-.text-muted {
-  color: rgba(15, 23, 42, .68);
-}
-.btn-soft {
-  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-surface));
-  border-color: transparent;
-  color: var(--color-primary);
-}
-.btn-pill {
-  border-radius: 999px;
-}
-.shadow-sm {
-  box-shadow: 0 16px 32px rgba(15, 23, 42, .08);
-}
-.shadow-md {
-  box-shadow: 0 30px 60px rgba(15, 23, 42, .16);
-}
-.max-w-md {
-  max-width: 40rem;
-  margin-inline: auto;
-}
-.max-w-lg {
-  max-width: 56rem;
-  margin-inline: auto;
-}
-.container-narrow {
-  max-width: 780px;
-  margin-inline: auto;
-  padding: 0 1rem;
-}
-.callout {
-  border-left: 4px solid var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
-  padding: var(--sp-3);
-  border-radius: var(--radius);
-}
-.divider {
-  border: 0;
-  border-top: 1px solid rgba(15, 23, 42, .12);
-  margin: var(--sp-5) 0;
-}
-details.faq {
-  border: 1px solid rgba(15, 23, 42, .12);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
-  padding: var(--sp-3);
-}
-details.faq summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-.text-center {
-  text-align: center;
-}
-.text-left {
-  text-align: left;
-}
-.text-right {
-  text-align: right;
-}
-.gap-sm {
-  gap: var(--sp-2);
-}
-.gap-lg {
-  gap: var(--sp-5);
-}
-.mt-1 {
-  margin-top: var(--sp-2);
-}
-.mt-2 {
-  margin-top: var(--sp-3);
-}
-.mt-3 {
-  margin-top: var(--sp-4);
-}
-.mt-4 {
-  margin-top: var(--sp-5);
-}
-.mb-1 {
-  margin-bottom: var(--sp-2);
-}
-.mb-2 {
-  margin-bottom: var(--sp-3);
-}
-.mb-3 {
-  margin-bottom: var(--sp-4);
-}
-.mb-4 {
-  margin-bottom: var(--sp-5);
-}
-.bg-tint {
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface));
-}
-.w-full {
-  width: 100%;
-}
-"""
-    return f"{CSS_HELPERS_SENTINEL}\n{css.strip()}"
-
-def template_extra_css_block(extra_css: str) -> str:
-    extra_css = extra_css.strip()
-    if not extra_css:
-        return ""
-    if not extra_css.endswith(""):
-        extra_css += ""
-    return f"{TEMPLATE_EXTRA_SENTINEL}{extra_css}"
-
-def extract_css_block(css: str, sentinel: str) -> Tuple[str, str]:
-    before, marker, after = css.partition(sentinel)
-    if not marker:
-        return css, ""
-    block = (marker + after).strip()
-    base = before.rstrip()
-    return base, block
-
-PROJECT_TEMPLATES = {
-    "starter": TemplateSpec(
-        name="Starter landing",
-        description="Versatile marketing layout with hero, features, and testimonial.",
-        pages=[
-            ("index.html", "Home", DEFAULT_INDEX_HTML),
-        ],
-        extra_css=STARTER_TEMPLATE_CSS,
-        include_helpers=True,
-    ),
-    "portfolio": TemplateSpec(
-        name="Portfolio spotlight",
-        description="Introduce yourself, showcase projects, and invite conversations.",
-        pages=[
-            ("index.html", "Home", PORTFOLIO_INDEX_HTML),
-            ("projects.html", "Projects", PORTFOLIO_PROJECTS_HTML),
-        ],
-        palette=dict(primary="#7c3aed", surface="#fcfbff", text="#1f2933"),
-        fonts=dict(
-            heading="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Arial",
-            body="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Arial",
-        ),
-        extra_css=PORTFOLIO_TEMPLATE_CSS,
-        include_helpers=True,
-    ),
-    "resource": TemplateSpec(
-        name="Resource hub",
-        description="Organize guides, troubleshooting steps, and FAQs with ease.",
-        pages=[
-            ("index.html", "Overview", RESOURCE_INDEX_HTML),
-            ("guide.html", "Quick start guide", RESOURCE_GUIDE_HTML),
-        ],
-        palette=dict(primary="#0ea5e9", surface="#f5faff", text="#0f172a"),
-        fonts=dict(
-            heading="Segoe UI, system-ui, -apple-system, Roboto, Ubuntu, 'Helvetica Neue', Arial",
-            body="Segoe UI, system-ui, -apple-system, Roboto, Ubuntu, 'Helvetica Neue', Arial",
-        ),
-        extra_css=RESOURCE_TEMPLATE_CSS,
-        include_helpers=True,
-    ),
-}
-DEFAULT_TEMPLATE_KEY = "starter"
-
-
 # ---------------------- Rendering (copies images) ----------------------
 
 def _env_from_memory() -> Environment:
@@ -1252,7 +520,10 @@ class MainWindow(QtWidgets.QMainWindow):
         splitter.addWidget(right)
         splitter.setSizes([240, 640, 420])
 
-        self.status = self.statusBar()
+        # Ensure a non-None status bar and keep a typed handle for Pylance
+        if self.statusBar() is None:
+            self.setStatusBar(QtWidgets.QStatusBar(self))
+        self.status: QtWidgets.QStatusBar = cast(QtWidgets.QStatusBar, self.statusBar())
 
     def _build_design_tab(self) -> QtWidgets.QWidget:
         w = QtWidgets.QWidget(self)
@@ -1325,7 +596,7 @@ class MainWindow(QtWidgets.QMainWindow):
         bar = self.menuBar()
 
         # File menu
-        m_file = bar.addMenu("&File")
+        m_file = cast(QtWidgets.QMenu, bar.addMenu("&File"))
         self.act_new = QtGui.QAction("New Project", self)
         self.act_open = QtGui.QAction("Open Project…", self)
         self.act_save = QtGui.QAction("Save", self)
@@ -1342,35 +613,37 @@ class MainWindow(QtWidgets.QMainWindow):
         m_file.addAction(self.act_quit)
 
         # Insert menu (HTML helpers, icons, graphics)
-        m_insert = bar.addMenu("&Insert")
-        sec = m_insert.addMenu("Section")
-        self._add_action(sec, "Hero", lambda: self.insert_html(html_section_hero()))
-        self._add_action(sec, "Features grid", lambda: self.insert_html(html_section_features()))
+        m_insert = cast(QtWidgets.QMenu, bar.addMenu("&Insert"))
+        sec   = cast(QtWidgets.QMenu, m_insert.addMenu("Section"))
+        gfx   = cast(QtWidgets.QMenu, m_insert.addMenu("Graphics"))
+        icons = cast(QtWidgets.QMenu, m_insert.addMenu("Icon (inline SVG)"))
+
+        self._add_action(sec, "Hero",                      lambda: self.insert_html(html_section_hero()))
+        self._add_action(sec, "Features grid",             lambda: self.insert_html(html_section_features()))
         self._add_action(sec, "Two‑column (image + text)", lambda: self.insert_html(html_section_two_column()))
-        self._add_action(sec, "Call‑to‑Action", lambda: self.insert_html(html_section_cta()))
-        self._add_action(sec, "FAQ", lambda: self.insert_html(html_section_faq()))
-        self._add_action(sec, "Pricing", lambda: self.insert_html(html_section_pricing()))
+        self._add_action(sec, "Call‑to‑Action",            lambda: self.insert_html(html_section_cta()))
+        self._add_action(sec, "FAQ",                       lambda: self.insert_html(html_section_faq()))
+        self._add_action(sec, "Pricing",                   lambda: self.insert_html(html_section_pricing()))
 
-        gfx = m_insert.addMenu("Graphics")
-        self._add_action(gfx, "Wave divider (top)", lambda: self.insert_html(svg_wave(self.project.palette["surface"], False)))
-        self._add_action(gfx, "Wave divider (bottom)", lambda: self.insert_html(svg_wave(self.project.palette["surface"], True)))
-        self._add_action(gfx, "Placeholder image…", self.insert_placeholder_dialog)
+        self._add_action(gfx, "Wave divider (top)",    self._insert_wave_top)
+        self._add_action(gfx, "Wave divider (bottom)", self._insert_wave_bottom)
+        self._add_action(gfx, "Placeholder image…",    self.insert_placeholder_dialog)
 
-        icons = m_insert.addMenu("Icon (inline SVG)")
         for name in sorted(ICONS.keys()):
             self._add_action(icons, name, lambda n=name: self.insert_html(ICONS[n]))
 
         # CSS menu
-        m_css = bar.addMenu("&CSS")
+        m_css = cast(QtWidgets.QMenu, bar.addMenu("&CSS"))
         self._add_action(m_css, "Append CSS helpers", self.append_css_helpers)
         self._add_action(m_css, "Reset CSS to Design", self.apply_design_to_css)
 
         # Help
-        m_help = bar.addMenu("&Help")
+        m_help = cast(QtWidgets.QMenu, bar.addMenu("&Help"))
         self.act_about = QtGui.QAction("About", self)
         m_help.addAction(self.act_about)
 
-    def _add_action(self, menu: QtWidgets.QMenu, title: str, slot) -> None:
+    def _add_action(self, menu: Optional[QtWidgets.QMenu], title: str, slot) -> None:
+        assert menu is not None, "Menu unexpectedly None"
         act = QtGui.QAction(title, self)
         act.triggered.connect(slot)
         menu.addAction(act)
@@ -1579,6 +852,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ---------- Design tab logic ----------
     def _sync_design_tab_from_project(self) -> None:
+        if not self.project:
+            return
         pal = self.project.palette
         fonts = self.project.fonts
         self.txt_primary.setText(pal["primary"])
@@ -1668,6 +943,8 @@ class MainWindow(QtWidgets.QMainWindow):
     # ---------- Assets ----------
     def _refresh_assets_list(self) -> None:
         self.assets_list.clear()
+        if not self.project:
+            return
         for p in self.project.images:
             self.assets_list.addItem(Path(p).name)
 
@@ -1706,6 +983,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.insert_html(tag)
 
     # ---------- Misc ----------
+    def _pal(self) -> Dict[str, str]:
+        # Safe palette accessor for type checker
+        return self.project.palette if self.project else dict(DEFAULT_PALETTE)
+
+    def _insert_wave_top(self) -> None:
+        self.insert_html(svg_wave(self._pal()["surface"], False))
+
+    def _insert_wave_bottom(self) -> None:
+        self.insert_html(svg_wave(self._pal()["surface"], True))
+
     def show_about(self) -> None:
         QtWidgets.QMessageBox.information(
             self, "About",
