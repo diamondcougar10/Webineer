@@ -13,7 +13,7 @@ import zipfile
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, cast
 
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
@@ -24,7 +24,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 APP_TITLE = "Webineer Site Builder"
 APP_ICON_PATH = "icon.ico"
-SITE_VERSION = 2
+SITE_VERSION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +148,24 @@ DEFAULT_FONTS = {
     "body": "'Inter', 'Segoe UI', sans-serif",
 }
 
+DEFAULT_GRADIENT = {"from": "#3b82f6", "to": "#60a5fa", "angle": "135deg"}
+
+SHADOW_LEVELS = ["none", "sm", "md", "lg"]
+MOTION_EFFECTS = ["none", "fade", "zoom", "blur"]
+MOTION_EASINGS: Dict[str, str] = {
+    "Gentle ease": "cubic-bezier(.2,.65,.2,1)",
+    "Smooth ease-out": "cubic-bezier(.22,.7,.36,1)",
+    "Playful bounce": "cubic-bezier(.68,-0.55,.27,1.55)",
+    "Linear": "linear",
+    "Ease-in-out": "ease-in-out",
+}
+GRADIENT_ANGLES = ["45deg", "90deg", "135deg", "180deg"]
+MOTION_PREF_OPTIONS: Dict[str, str] = {
+    "Respect visitor setting": "respect",
+    "Force on": "force_on",
+    "Force off": "force_off",
+}
+
 
 @dataclass
 class Project:
@@ -162,6 +180,15 @@ class Project:
     use_main_js: bool = False
     output_dir: Optional[str] = None
     version: int = SITE_VERSION
+    use_scroll_animations: bool = False
+    gradients: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GRADIENT))
+    radius_scale: float = 1.0
+    shadow_level: str = "md"
+    motion_pref: str = "respect"
+    motion_default_effect: str = "none"
+    motion_default_easing: str = "cubic-bezier(.2,.65,.2,1)"
+    motion_default_duration: int = 600
+    motion_default_delay: int = 0
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -176,6 +203,15 @@ class Project:
             "use_main_js": self.use_main_js,
             "output_dir": self.output_dir,
             "version": self.version,
+            "use_scroll_animations": self.use_scroll_animations,
+            "gradients": dict(self.gradients),
+            "radius_scale": self.radius_scale,
+            "shadow_level": self.shadow_level,
+            "motion_pref": self.motion_pref,
+            "motion_default_effect": self.motion_default_effect,
+            "motion_default_easing": self.motion_default_easing,
+            "motion_default_duration": self.motion_default_duration,
+            "motion_default_delay": self.motion_default_delay,
         }
 
     @classmethod
@@ -183,6 +219,12 @@ class Project:
             def safe_int(val, default=1):
                 try:
                     return int(val)
+                except (TypeError, ValueError):
+                    return default
+
+            def safe_float(val, default=1.0):
+                try:
+                    return float(val)
                 except (TypeError, ValueError):
                     return default
 
@@ -204,6 +246,35 @@ class Project:
             output_dir = data.get("output_dir")
             if output_dir is not None and not isinstance(output_dir, str):
                 output_dir = str(output_dir)
+            gradients_raw = data.get("gradients")
+            gradients = dict(DEFAULT_GRADIENT)
+            if isinstance(gradients_raw, dict):
+                gradients = {
+                    "from": str(gradients_raw.get("from", gradients["from"])),
+                    "to": str(gradients_raw.get("to", gradients["to"])),
+                    "angle": str(gradients_raw.get("angle", gradients["angle"])),
+                }
+            radius_scale = safe_float(data.get("radius_scale", 1.0), 1.0)
+            if radius_scale <= 0:
+                radius_scale = 1.0
+            shadow_level = str(data.get("shadow_level", "md"))
+            if shadow_level not in {"none", "sm", "md", "lg"}:
+                shadow_level = "md"
+            motion_pref = str(data.get("motion_pref", "respect"))
+            if motion_pref not in {"respect", "force_on", "force_off"}:
+                motion_pref = "respect"
+            motion_default_effect = str(data.get("motion_default_effect", "none"))
+            if motion_default_effect not in {"none", "fade", "zoom", "blur"}:
+                motion_default_effect = "none"
+            motion_default_easing = str(
+                data.get("motion_default_easing", "cubic-bezier(.2,.65,.2,1)")
+            )
+            motion_default_duration = safe_int(data.get("motion_default_duration", 600), 600)
+            if motion_default_duration < 0:
+                motion_default_duration = 600
+            motion_default_delay = safe_int(data.get("motion_default_delay", 0), 0)
+            if motion_default_delay < 0:
+                motion_default_delay = 0
             return cls(
                 name=str(data.get("name", "My Site")),
                 pages=pages,
@@ -216,6 +287,15 @@ class Project:
                 use_main_js=bool(data.get("use_main_js", False)),
                 output_dir=output_dir,
                 version=version,
+                use_scroll_animations=bool(data.get("use_scroll_animations", False)),
+                gradients=gradients,
+                radius_scale=radius_scale,
+                shadow_level=shadow_level,
+                motion_pref=motion_pref,
+                motion_default_effect=motion_default_effect,
+                motion_default_easing=motion_default_easing,
+                motion_default_duration=motion_default_duration,
+                motion_default_delay=motion_default_delay,
             )
 
 # ---------------------------------------------------------------------------
@@ -233,6 +313,58 @@ THEME_PRESETS: Dict[str, Dict[str, str]] = {
     "Forest": {"primary": "#15803d", "surface": "#f0fdf4", "text": "#052e16"},
     "Midnight": {"primary": "#6366f1", "surface": "#111827", "text": "#f9fafb"},
     "Rose": {"primary": "#ec4899", "surface": "#fdf2f8", "text": "#831843"},
+    "Glassmorphism": {"primary": "#60a5fa", "surface": "#0f172a", "text": "#f8fafc"},
+    "Neumorphism": {"primary": "#4f46e5", "surface": "#e2e8f0", "text": "#1f2937"},
+    "Warm Sunset": {"primary": "#fb7185", "surface": "#fff1e6", "text": "#7c2d12"},
+    "Mint Fresh": {"primary": "#10b981", "surface": "#ecfdf5", "text": "#064e3b"},
+}
+
+
+THEME_STYLE_PRESETS: Dict[str, Dict[str, object]] = {
+    "Glassmorphism": {
+        "fonts": {"heading": "'Poppins', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"},
+        "gradients": {"from": "#60a5fa", "to": "#a855f7", "angle": "120deg"},
+        "radius_scale": 1.2,
+        "shadow_level": "lg",
+        "extra_css": """/* theme: Glassmorphism */
+body { background: radial-gradient(circle at 15% 20%, rgba(96,165,250,0.25), transparent 55%), #0f172a; color: #e2e8f0; }
+.card { background: rgba(15,23,42,0.55); border: 1px solid rgba(148,163,184,0.35); backdrop-filter: blur(18px); color: #f8fafc; }
+.btn-primary { box-shadow: 0 24px 48px rgba(37,99,235,0.35); }
+""",
+    },
+    "Neumorphism": {
+        "fonts": {"heading": "'Nunito', 'Segoe UI', sans-serif", "body": "'Nunito', 'Segoe UI', sans-serif"},
+        "gradients": {"from": "#dbeafe", "to": "#e2e8f0", "angle": "135deg"},
+        "radius_scale": 1.1,
+        "shadow_level": "sm",
+        "extra_css": """/* theme: Neumorphism */
+body { background: #e2e8f0; }
+.card { border: none; background: #e2e8f0; box-shadow: 12px 12px 30px rgba(148,163,184,0.35), -12px -12px 30px rgba(255,255,255,0.9); }
+.btn { box-shadow: inset 4px 4px 12px rgba(148,163,184,0.35), inset -4px -4px 12px rgba(255,255,255,0.85); }
+""",
+    },
+    "Warm Sunset": {
+        "fonts": {"heading": "'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"},
+        "gradients": {"from": "#fb7185", "to": "#f97316", "angle": "125deg"},
+        "radius_scale": 1.0,
+        "shadow_level": "md",
+        "extra_css": """/* theme: Warm Sunset */
+.hero { background: linear-gradient(135deg, rgba(251,113,133,0.92), rgba(249,115,22,0.85)); color: #fff; padding: calc(var(--space-7) * 1.15) 0; }
+.section-alt { background: rgba(251,146,60,0.12); }
+.btn-primary { background: linear-gradient(135deg, #fb7185, #f97316); }
+""",
+    },
+    "Mint Fresh": {
+        "fonts": {"heading": "'Fira Sans', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"},
+        "gradients": {"from": "#34d399", "to": "#22d3ee", "angle": "135deg"},
+        "radius_scale": 1.05,
+        "shadow_level": "md",
+        "extra_css": """/* theme: Mint Fresh */
+.section-alt { background: rgba(45,212,191,0.12); }
+.card { border: 1px solid rgba(16,185,129,0.25); }
+.btn-primary { box-shadow: 0 24px 50px rgba(16,185,129,0.35); }
+""",
+    },
 }
 
 
@@ -251,6 +383,8 @@ FONT_STACKS = [
 
 
 CSS_HELPERS_SENTINEL = "/* === WEBINEER CSS HELPERS (DO NOT DUPLICATE) === */"
+ANIM_HELPERS_SENTINEL = "/* === WEBINEER ANIMATION HELPERS === */"
+GRADIENT_HELPERS_SENTINEL = "/* === WEBINEER GRADIENT HELPERS === */"
 TEMPLATE_EXTRA_SENTINEL = "/* === WEBINEER TEMPLATE EXTRA CSS === */"
 
 CSS_HELPERS_BLOCK = """:root {
@@ -265,8 +399,10 @@ CSS_HELPERS_BLOCK = """:root {
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1.5rem;
-  --shadow-sm: 0 2px 12px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.12);
+  --shadow-none: none;
+  --shadow-sm: 0 16px 32px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 30px 60px rgba(15, 23, 42, 0.16);
+  --shadow-lg: 0 40px 80px rgba(15, 23, 42, 0.22);
   --max-width: 1100px;
 }
 body {
@@ -473,7 +609,86 @@ body {
 .alert-danger { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.36); }
 """
 
-CSS_SENTINELS = (CSS_HELPERS_SENTINEL, TEMPLATE_EXTRA_SENTINEL)
+
+def gradient_helpers_block(grad: Dict[str, str]) -> str:
+    """Return the gradient helper CSS block."""
+
+    return f"""{GRADIENT_HELPERS_SENTINEL}
+:root {{
+  --gradient-from: {grad.get('from', '#3b82f6')};
+  --gradient-to: {grad.get('to', '#60a5fa')};
+  --gradient-angle: {grad.get('angle', '135deg')};
+  --gradient-main: linear-gradient(var(--gradient-angle), var(--gradient-from), var(--gradient-to));
+}}
+.bg-gradient {{ background: var(--gradient-main); }}
+.text-on-gradient {{ color: white; }}
+.card-gradient {{ background: var(--gradient-main); color: white; }}
+.btn-gradient {{ background: var(--gradient-main); border-color: transparent; color: white; }}
+"""
+
+
+def animation_helpers_block(motion_pref: str = "respect") -> str:
+    """Return the animation helper CSS block."""
+
+    reduce_block = (
+        "@media (prefers-reduced-motion: reduce) {\n  .anim, [data-animate] { animation: none !important; transition: none !important; }\n}\n"
+        if motion_pref != "force_on"
+        else ""
+    )
+    force_off_block = (
+        ".anim, [data-animate] { animation: none !important; transition: none !important; }\n"
+        if motion_pref == "force_off"
+        else ""
+    )
+    return (
+        f"""{ANIM_HELPERS_SENTINEL}
+:root {{
+  --anim-duration: .6s;
+  --anim-delay: 0s;
+  --anim-ease: cubic-bezier(.2,.65,.2,1);
+}}
+{reduce_block}{force_off_block}/* Keyframes */
+@keyframes fadeInUp {{ from {{ opacity:0; transform: translateY(10px); }} to {{ opacity:1; transform:none; }} }}
+@keyframes zoomIn   {{ from {{ opacity:0; transform: scale(.96); }} to {{ opacity:1; transform:scale(1); }} }}
+@keyframes blurIn   {{ from {{ opacity:0; filter: blur(8px); }} to {{ opacity:1; filter:none; }} }}
+@keyframes float    {{ 0% {{ transform: translateY(0); }} 50% {{ transform: translateY(-6px); }} 100% {{ transform: translateY(0); }} }}
+/* Utilities */
+.anim {{
+  animation-duration: var(--anim-duration, .6s);
+  animation-delay: var(--anim-delay, 0s);
+  animation-timing-function: var(--anim-ease, cubic-bezier(.2,.65,.2,1));
+  animation-fill-mode: both;
+}}
+.anim-fade {{ animation-name: fadeInUp; }}
+.anim-zoom {{ animation-name: zoomIn; }}
+.anim-blur {{ animation-name: blurIn; }}
+.anim-float {{ animation: float 3.5s ease-in-out infinite; }}
+/* Attribute-driven (with small JS): [data-animate="fade|zoom|blur"] */
+[data-animate] {{
+  opacity: 0;
+  --anim-duration: var(--anim-duration, .6s);
+  --anim-delay: var(--anim-delay, 0s);
+  --anim-ease: var(--anim-ease, cubic-bezier(.2,.65,.2,1));
+}}
+[data-animate].is-in {{
+  opacity: 1;
+  animation-duration: var(--anim-duration, .6s);
+  animation-delay: var(--anim-delay, 0s);
+  animation-timing-function: var(--anim-ease, cubic-bezier(.2,.65,.2,1));
+  animation-fill-mode: both;
+}}
+[data-animate="fade"].is-in {{ animation-name: fadeInUp; }}
+[data-animate="zoom"].is-in {{ animation-name: zoomIn; }}
+[data-animate="blur"].is-in {{ animation-name: blurIn; }}
+"""
+    )
+
+CSS_SENTINELS = (
+    CSS_HELPERS_SENTINEL,
+    GRADIENT_HELPERS_SENTINEL,
+    ANIM_HELPERS_SENTINEL,
+    TEMPLATE_EXTRA_SENTINEL,
+)
 
 
 def ensure_block(css: str, sentinel: str, block: str) -> str:
@@ -482,7 +697,10 @@ def ensure_block(css: str, sentinel: str, block: str) -> str:
     if sentinel in css:
         return css
     base = css.rstrip()
-    addition = f"{sentinel}\n{block.strip()}\n"
+    block_content = block.strip()
+    if block_content.startswith(sentinel):
+        block_content = block_content[len(sentinel) :].lstrip("\n")
+    addition = f"{sentinel}\n{block_content}\n" if block_content else f"{sentinel}\n"
     if base:
         return base + "\n\n" + addition
     return addition
@@ -503,6 +721,19 @@ def extract_css_block(css: str, sentinel: str) -> str | None:
             end = pos
     block = tail[:end].strip()
     return block or None
+
+
+THEME_EXTRA_PREFIX = "/* theme:"
+
+
+def strip_theme_extras(block: Optional[str]) -> str:
+    """Remove theme extra CSS markers from a TEMPLATE_EXTRA block."""
+
+    if not block:
+        return ""
+    pattern = re.compile(r"/\* theme:.*?\*/.*?(?=(/\* theme:)|$)", re.S)
+    cleaned = re.sub(pattern, "", block)
+    return cleaned.strip()
 MAIN_JS_SNIPPET = """// Lightweight helpers for Webineer components
 (function(){
   const navToggle = document.querySelector('[data-toggle="mobile-nav"]');
@@ -521,6 +752,23 @@ MAIN_JS_SNIPPET = """// Lightweight helpers for Webineer components
       }
     });
   });
+})();
+"""
+
+SCROLL_JS_SNIPPET = """// Minimal intersection observer for scroll animations
+(() => {
+  const prefersReduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (prefersReduce) return;
+  const els = document.querySelectorAll('[data-animate]');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-in');
+        io.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  els.forEach((el) => io.observe(el));
 })();
 """
 
@@ -843,6 +1091,18 @@ def html_section_contact_form() -> str:
 
 def html_section_about_header() -> str:
     return """<section class=\"section max-w-lg\">\n  <p class=\"eyebrow\">About</p>\n  <h1>Meet the team behind your next big win</h1>\n  <p class=\"lead\">Share your mission, values, and the milestones that make your story memorable.</p>\n</section>"""
+
+
+def svg_blob(color: str = "#e5e7eb") -> str:
+    return f"""<svg viewBox=\"0 0 600 400\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\">\n  <path fill=\"{color}\" d=\"M92.4,-111.4C126.6,-86.1,162.9,-64.6,185.5,-31.5C208,1.6,216.9,46.3,199.6,85.9C182.3,125.4,138.9,159.8,93.5,176.8C48.2,193.9,1,193.7,-46.2,188.6C-93.4,183.4,-140.6,173.2,-171.8,141.6C-203,110,-218.3,57.1,-213.4,7.2C-208.5,-42.6,-183.4,-89.6,-148.9,-116.1C-114.5,-142.6,-70.8,-148.7,-31.7,-141.8C7.4,-134.8,14.8,-114.8,92.4,-111.4Z\" transform=\"translate(300 200)\"/>\n</svg>"""
+
+
+def svg_dots(bg: str = "#ffffff", dot: str = "#e5e7eb") -> str:
+    return f"""<svg viewBox=\"0 0 400 200\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\">\n  <defs>\n    <pattern id=\"dots\" x=\"0\" y=\"0\" width=\"24\" height=\"24\" patternUnits=\"userSpaceOnUse\">\n      <rect width=\"24\" height=\"24\" fill=\"{bg}\"/>\n      <circle cx=\"6\" cy=\"6\" r=\"3\" fill=\"{dot}\"/>\n      <circle cx=\"18\" cy=\"18\" r=\"3\" fill=\"{dot}\"/>\n    </pattern>\n  </defs>\n  <rect width=\"400\" height=\"200\" fill=\"url(#dots)\"/>\n</svg>"""
+
+
+def svg_diagonal_stripes(bg: str = "#ffffff", stripe: str = "#f1f5f9") -> str:
+    return f"""<svg viewBox=\"0 0 400 200\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\">\n  <defs>\n    <pattern id=\"diagonal\" width=\"20\" height=\"20\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n      <rect width=\"20\" height=\"20\" fill=\"{bg}\"/>\n      <rect width=\"10\" height=\"20\" fill=\"{stripe}\"/>\n    </pattern>\n  </defs>\n  <rect width=\"400\" height=\"200\" fill=\"url(#diagonal)\"/>\n</svg>"""
 # ---------------------------------------------------------------------------
 # Template specifications
 # ---------------------------------------------------------------------------
@@ -856,6 +1116,9 @@ class TemplateSpec:
     fonts: Optional[Dict[str, str]] = None
     extra_css: str = ""
     include_helpers: bool = True
+    gradients: Optional[Dict[str, str]] = None
+    radius_scale: Optional[float] = None
+    shadow_level: Optional[str] = None
 
 
 def _starter_spec() -> TemplateSpec:
@@ -1090,6 +1353,481 @@ def _resource_spec() -> TemplateSpec:
 
 
 
+def _saas_bold_spec() -> TemplateSpec:
+    hero = """<section class="hero bg-gradient text-on-gradient">
+  <div class="container grid split-2 align-center">
+    <div class="stack">
+      <p class="eyebrow">Modern SaaS</p>
+      <h1>{{SITE_NAME}} helps product teams ship faster</h1>
+      <p class="lead">Launch polished marketing, onboarding, and help pages without waiting on design.</p>
+      <div class="stack-inline">
+        <a class="btn btn-gradient" href="#">Start free trial</a>
+        <a class="btn btn-ghost" href="#">See live demo</a>
+      </div>
+      <div class="stack-inline">
+        <span class="badge">No credit card</span>
+        <span class="badge">Onboard in 10 minutes</span>
+      </div>
+    </div>
+    <div class="card shadow glass-panel stack">
+      <h3>Trusted launch playbook</h3>
+      <ul class="list-check">
+        <li>Dynamic templates for every funnel stage.</li>
+        <li>Reusable brand components.</li>
+        <li>Insights to boost trial-to-paid conversion.</li>
+      </ul>
+    </div>
+  </div>
+</section>"""
+    feature_bands = """<section class="section">
+  <div class="grid split-3 feature-band">
+    <article class="stack">
+      <h3>Guided onboarding</h3>
+      <p>Welcome new customers with contextual walkthroughs and smart nudges.</p>
+    </article>
+    <article class="stack">
+      <h3>Dynamic content</h3>
+      <p>Personalize messaging with data-aware sections and responsive layouts.</p>
+    </article>
+    <article class="stack">
+      <h3>Actionable insights</h3>
+      <p>Track adoption milestones and highlight the moments that matter.</p>
+    </article>
+  </div>
+</section>"""
+    metrics = """<section class="section">
+  <div class="metrics-grid">
+    <div class="metric">
+      <strong>4.8★</strong>
+      <p>Average satisfaction score from beta customers.</p>
+    </div>
+    <div class="metric">
+      <strong>+36%</strong>
+      <p>Increase in trial conversions after two weeks.</p>
+    </div>
+    <div class="metric">
+      <strong>20 hrs</strong>
+      <p>Saved every month on marketing upkeep.</p>
+    </div>
+  </div>
+</section>"""
+    testimonial = """<section class="section">
+  <div class="testimonial-highlight stack">
+    <p class="lead">“Webineer let us launch three new pages in a single afternoon. The gradients and animations feel premium out of the box.”</p>
+    <p><strong>Avery Martin</strong> · Growth Lead at Skyline</p>
+  </div>
+</section>"""
+    cta = """<section class="section center">
+  <div class="card stack center">
+    <h2>Start shipping bold experiences</h2>
+    <p>Install the toolkit, pick a template, and go live in minutes.</p>
+    <div class="stack-inline">
+      <a class="btn btn-gradient" href="#">Create my site</a>
+      <a class="btn btn-ghost" href="#">Talk with sales</a>
+    </div>
+  </div>
+</section>"""
+    index_html = "\n\n".join([hero, feature_bands, metrics, testimonial, cta])
+    platform_section = """<section class="section">
+  <div class="grid split-2 align-center">
+    <article class="stack">
+      <p class="eyebrow">Platform</p>
+      <h2>Every stage covered</h2>
+      <p>Ship onboarding flows, help centers, and launch microsites using one consistent system.</p>
+      <ul class="list-check">
+        <li>Reusable sections for product updates.</li>
+        <li>Motion presets that respect accessibility.</li>
+        <li>Design tokens synced to your brand.</li>
+      </ul>
+    </article>
+    <aside class="card shadow">
+      <h3>Integrations</h3>
+      <ul class="stack">
+        <li>Analytics &amp; attribution</li>
+        <li>Marketing automation</li>
+        <li>Support docs</li>
+      </ul>
+    </aside>
+  </div>
+</section>"""
+    platform_html = "\n\n".join([platform_section, html_section_faq()])
+    pricing_html = "\n\n".join([_pricing_hero(), html_section_pricing(), html_section_testimonials(), html_section_cta()])
+    extra_css = """.glass-panel {
+  backdrop-filter: blur(18px);
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.feature-band {
+  background: rgba(15, 23, 42, 0.08);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+}
+.metrics-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+.metric {
+  background: rgba(15, 23, 42, 0.65);
+  color: rgba(241, 245, 249, 0.92);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.metric strong {
+  display: block;
+  font-size: 2.5rem;
+}
+.testimonial-highlight {
+  background: rgba(15, 23, 42, 0.55);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  color: rgba(248, 250, 252, 0.92);
+  box-shadow: var(--shadow-lg);
+}
+@media (max-width: 960px) {
+  .glass-panel {
+    order: -1;
+  }
+}
+"""
+    palette = {"primary": "#38bdf8", "surface": "#0f172a", "text": "#e0f2fe"}
+    fonts = {"heading": "'Space Grotesk', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    gradients = {"from": "#22d3ee", "to": "#6366f1", "angle": "118deg"}
+    return TemplateSpec(
+        name="Bold SaaS",
+        description="Gradient-rich SaaS marketing with metrics, testimonials, and pricing.",
+        pages=[
+            ("index.html", "Home", index_html),
+            ("platform.html", "Platform", platform_html),
+            ("pricing.html", "Pricing", pricing_html),
+        ],
+        palette=palette,
+        fonts=fonts,
+        extra_css=extra_css,
+        gradients=gradients,
+        radius_scale=1.15,
+        shadow_level="lg",
+    )
+
+
+def _photo_showcase_spec() -> TemplateSpec:
+    hero = """<section class="hero">
+  <div class="container grid split-2 align-center">
+    <div class="stack">
+      <p class="eyebrow">Photography portfolio</p>
+      <h1>{{SITE_NAME}} captures stories in light</h1>
+      <p class="lead">Blend editorial storytelling with immersive galleries that scale across devices.</p>
+      <div class="stack-inline">
+        <a class="btn btn-primary" href="#portfolio">View collections</a>
+        <a class="btn btn-ghost" href="#contact">Book a session</a>
+      </div>
+    </div>
+    <figure class="card shadow">
+      <img src="assets/images/placeholder-tall.png" alt="Portrait sample">
+      <figcaption class="muted">Lifestyle · Editorial · Brand</figcaption>
+    </figure>
+  </div>
+</section>"""
+    gallery = """<section class="section" id="portfolio">
+  <h2>Featured collections</h2>
+  <div class="gallery-masonry">
+    <figure><img src="assets/images/placeholder-tall.png" alt="Gallery shot 1"><figcaption>City light</figcaption></figure>
+    <figure><img src="assets/images/placeholder-wide.png" alt="Gallery shot 2"><figcaption>Quiet moments</figcaption></figure>
+    <figure><img src="assets/images/placeholder-wide.png" alt="Gallery shot 3"><figcaption>Editorial spread</figcaption></figure>
+    <figure><img src="assets/images/placeholder-tall.png" alt="Gallery shot 4"><figcaption>Portrait series</figcaption></figure>
+    <figure><img src="assets/images/placeholder-wide.png" alt="Gallery shot 5"><figcaption>Brand atmosphere</figcaption></figure>
+    <figure><img src="assets/images/placeholder-tall.png" alt="Gallery shot 6"><figcaption>Behind the scenes</figcaption></figure>
+  </div>
+  <p class="muted lightbox-hint">Tip: pair with your favorite lightbox script for interactive viewing.</p>
+</section>"""
+    services = """<section class="section section-alt" id="services">
+  <div class="grid split-3">
+    <article class="card stack">
+      <h3>Brand campaigns</h3>
+      <p>Create cohesive visuals for launches, billboards, and social storytelling.</p>
+    </article>
+    <article class="card stack">
+      <h3>Editorial features</h3>
+      <p>Collaborate on magazine-ready imagery with thoughtful art direction.</p>
+    </article>
+    <article class="card stack">
+      <h3>Portrait sessions</h3>
+      <p>Capture personality-driven portraits for founders and creative teams.</p>
+    </article>
+  </div>
+</section>"""
+    contact = """<section class="section" id="contact">
+  <div class="card stack">
+    <h2>Let's work together</h2>
+    <p>Share your project goals, timelines, and inspiration. We'll reply within one day.</p>
+    <form class="stack">
+      <label>Name<input type="text" placeholder="Your name"></label>
+      <label>Email<input type="email" placeholder="you@example.com"></label>
+      <label>Project notes<textarea rows="4" placeholder="Tell us about the shoot"></textarea></label>
+      <button class="btn btn-primary" type="submit">Request availability</button>
+    </form>
+  </div>
+</section>"""
+    index_html = "\n\n".join([hero, gallery, services, contact])
+    story_page = """<article class="section container stack">
+  <p class="muted">Recent story</p>
+  <h1>Golden hour rooftop session</h1>
+  <p class="lead">We partnered with the Ember team to showcase their founders in a warm, cinematic light.</p>
+  <p>Highlight the creative direction, planning, and post-production workflow. Encourage visitors to explore more stories or inquire about bookings.</p>
+  <div class="gallery-inline">
+    <img src="assets/images/placeholder-wide.png" alt="Story photo 1">
+    <img src="assets/images/placeholder-wide.png" alt="Story photo 2">
+  </div>
+</article>"""
+    pricing_page = """<section class="section">
+  <h1>Services &amp; rates</h1>
+  <div class="grid split-2">
+    <article class="card stack">
+      <h2>Editorial day</h2>
+      <p>Full-day creative direction with production support.</p>
+      <p class="lead">Starting at $3,200</p>
+    </article>
+    <article class="card stack">
+      <h2>Brand library</h2>
+      <p>Quarterly shoots to refresh your content pipeline.</p>
+      <p class="lead">Starting at $5,500</p>
+    </article>
+  </div>
+</section>"""
+    extra_css = """.gallery-masonry {
+  column-count: 3;
+  column-gap: var(--space-4);
+}
+.gallery-masonry figure {
+  break-inside: avoid;
+  margin: 0 0 var(--space-4);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-md);
+}
+.gallery-masonry img {
+  width: 100%;
+  display: block;
+}
+.gallery-inline {
+  display: grid;
+  gap: var(--space-4);
+}
+.lightbox-hint {
+  text-align: center;
+  margin-top: var(--space-3);
+}
+@media (max-width: 960px) {
+  .gallery-masonry {
+    column-count: 2;
+  }
+}
+@media (max-width: 640px) {
+  .gallery-masonry {
+    column-count: 1;
+  }
+}
+"""
+    palette = {"primary": "#f59e0b", "surface": "#0f172a", "text": "#f8fafc"}
+    fonts = {"heading": "'Playfair Display', 'Times New Roman', serif", "body": "'Source Sans Pro', 'Helvetica Neue', sans-serif"}
+    gradients = {"from": "#0ea5e9", "to": "#f472b6", "angle": "135deg"}
+    return TemplateSpec(
+        name="Photo showcase",
+        description="Immersive gallery layout with editorial storytelling and booking form.",
+        pages=[
+            ("index.html", "Home", index_html),
+            ("story.html", "Story", story_page),
+            ("services.html", "Services", pricing_page),
+        ],
+        palette=palette,
+        fonts=fonts,
+        extra_css=extra_css,
+        gradients=gradients,
+        radius_scale=1.05,
+        shadow_level="md",
+    )
+
+
+def _event_launch_spec() -> TemplateSpec:
+    hero = """<section class="hero bg-gradient text-on-gradient">
+  <div class="container">
+    <p class="eyebrow">Conference launch</p>
+    <h1>Join {{SITE_NAME}} — the summit for creative web teams</h1>
+    <p class="lead">Three days of workshops, inspiring keynotes, and community meetups in the heart of the city.</p>
+    <div class="stack-inline">
+      <a class="btn btn-gradient" href="#tickets">Reserve seat</a>
+      <a class="btn btn-ghost" href="#schedule">View schedule</a>
+    </div>
+    <div class="stack stats-ribbon">
+      <span><strong>May 24–26</strong> · Harbor Convention Center</span>
+      <span><strong>500+</strong> makers · Hybrid sessions</span>
+    </div>
+  </div>
+</section>"""
+    highlights = """<section class="section">
+  <div class="grid split-3">
+    <article class="card stack">
+      <h3>Hands-on workshops</h3>
+      <p>Prototype live with mentors guiding accessibility, motion, and storytelling.</p>
+    </article>
+    <article class="card stack">
+      <h3>Keynote voices</h3>
+      <p>Hear from design systems leads shaping inclusive experiences.</p>
+    </article>
+    <article class="card stack">
+      <h3>Community roundtables</h3>
+      <p>Swap ideas with product, marketing, and engineering peers.</p>
+    </article>
+  </div>
+</section>"""
+    schedule = """<section class="section" id="schedule">
+  <h2>Preview the schedule</h2>
+  <div class="schedule-grid">
+    <div>
+      <h4>Day 1 — Momentum</h4>
+      <ul>
+        <li>09:00 · Welcome keynote</li>
+        <li>11:00 · Building motion systems</li>
+        <li>14:00 · Inclusive content sprints</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Day 2 — Collaboration</h4>
+      <ul>
+        <li>09:30 · Designing with tokens</li>
+        <li>13:00 · Gradient storytelling lab</li>
+        <li>16:00 · Community showcase</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Day 3 — Launch</h4>
+      <ul>
+        <li>10:00 · Product marketing roundtables</li>
+        <li>12:30 · Live audits</li>
+        <li>15:30 · Closing celebration</li>
+      </ul>
+    </div>
+  </div>
+</section>"""
+    speakers = """<section class="section section-alt" id="speakers">
+  <h2>Meet the speakers</h2>
+  <div class="grid split-3">
+    <article class="speaker-card">
+      <img src="assets/images/placeholder-square.png" alt="Keynote speaker">
+      <h3>Jordan Lee</h3>
+      <p>Design systems lead at Atlas</p>
+    </article>
+    <article class="speaker-card">
+      <img src="assets/images/placeholder-square.png" alt="Speaker">
+      <h3>Amina Cole</h3>
+      <p>Creative director at Northwind</p>
+    </article>
+    <article class="speaker-card">
+      <img src="assets/images/placeholder-square.png" alt="Speaker">
+      <h3>Sam Rivera</h3>
+      <p>Product strategist at Launchpad</p>
+    </article>
+  </div>
+</section>"""
+    tickets = """<section class="section center" id="tickets">
+  <div class="card stack center">
+    <h2>Secure your ticket</h2>
+    <p>Early access pricing available until April 30.</p>
+    <div class="stack-inline">
+      <a class="btn btn-gradient" href="#">General admission — $249</a>
+      <a class="btn btn-ghost" href="#">Team bundles</a>
+    </div>
+  </div>
+</section>"""
+    index_html = "\n\n".join([hero, highlights, schedule, speakers, tickets, html_section_faq()])
+    travel_page = """<section class="section">
+  <h1>Plan your visit</h1>
+  <div class="grid split-2">
+    <article class="stack">
+      <h2>Venue</h2>
+      <p>Harbor Convention Center · 221 Market Street</p>
+      <p>Steps away from downtown hotels, coffee shops, and waterfront walks.</p>
+      <div class="map-placeholder">Map placeholder</div>
+    </article>
+    <article class="stack">
+      <h2>Stay &amp; explore</h2>
+      <ul class="list-check">
+        <li>Partner hotels with attendee rates.</li>
+        <li>Local guides for dining and meetups.</li>
+        <li>Transit tips for easy travel.</li>
+      </ul>
+    </article>
+  </div>
+</section>"""
+    faq_page = "\n\n".join([
+        """<section class="section">
+  <h1>FAQ</h1>
+  <p class="lead">Everything you need to know before arriving.</p>
+</section>""",
+        html_section_faq(),
+    ])
+    extra_css = """.stats-ribbon {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+.schedule-grid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.schedule-grid h4 {
+  margin-bottom: var(--space-2);
+}
+.speaker-card {
+  background: rgba(15, 23, 42, 0.85);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+}
+.speaker-card img {
+  border-radius: 999px;
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  margin-bottom: var(--space-3);
+}
+.map-placeholder {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  text-align: center;
+  font-weight: 600;
+}
+@media (max-width: 720px) {
+  .stats-ribbon {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+"""
+    palette = {"primary": "#fb923c", "surface": "#111827", "text": "#fef3c7"}
+    fonts = {"heading": "'Plus Jakarta Sans', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    gradients = {"from": "#fb923c", "to": "#f43f5e", "angle": "120deg"}
+    return TemplateSpec(
+        name="Event launch",
+        description="Countdown-ready event site with schedule, speakers, and travel info.",
+        pages=[
+            ("index.html", "Home", index_html),
+            ("travel.html", "Travel", travel_page),
+            ("faq.html", "FAQ", faq_page),
+        ],
+        palette=palette,
+        fonts=fonts,
+        extra_css=extra_css,
+        gradients=gradients,
+        radius_scale=1.1,
+        shadow_level="md",
+    )
+
 def _pricing_hero() -> str:
     hero = html_section_hero()
     hero = hero.replace("Headline that inspires confidence", "Pricing that scales with you")
@@ -1232,6 +1970,9 @@ PROJECT_TEMPLATES: Dict[str, TemplateSpec] = {
     "starter": _starter_spec(),
     "portfolio": _portfolio_spec(),
     "resource": _resource_spec(),
+    "saas_bold": _saas_bold_spec(),
+    "photo_showcase": _photo_showcase_spec(),
+    "event_launch": _event_launch_spec(),
 }
 
 
@@ -1270,41 +2011,66 @@ BASE_TEMPLATE = """\
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <title>{{ title }} — {{ site_name }}</title>
   <link rel=\"stylesheet\" href=\"assets/css/style.css\">
+  <style>
+    :root {
+      --color-primary: {{ color_primary }};
+      --color-surface: {{ color_surface }};
+      --color-text: {{ color_text }};
+      --font-heading: {{ heading_font | safe }};
+      --font-body: {{ body_font | safe }};
+    }
+  </style>
 </head>
 <body class=\"main-container\">
   {{ content | safe }}
+  {% if use_scroll_js %}<script src=\"assets/js/site.js\" defer></script>{% endif %}
   <script src=\"assets/js/main.js\"{% if not include_js %} defer hidden{% endif %}></script>
 </body>
 </html>
 """
 
 
-def build_base_css(palette: Dict[str, str], fonts: Dict[str, str]) -> str:
+def build_base_css(
+    palette: Dict[str, str],
+    fonts: Dict[str, str],
+    radius_scale: float = 1.0,
+    shadow_level: str = "md",
+) -> str:
     primary = palette.get("primary", DEFAULT_PALETTE["primary"])
     surface = palette.get("surface", DEFAULT_PALETTE["surface"])
     text = palette.get("text", DEFAULT_PALETTE["text"])
     heading_font = fonts.get("heading", DEFAULT_FONTS["heading"])
     body_font = fonts.get("body", DEFAULT_FONTS["body"])
+    radius_scale_str = f"{radius_scale:g}" if radius_scale else "1"
+    level = shadow_level if shadow_level in {"none", "sm", "md", "lg"} else "md"
     return f""":root {{
   --color-primary: {primary};
   --color-surface: {surface};
   --color-text: {text};
+  --font-heading: {heading_font};
+  --font-body: {body_font};
+  --radius: calc(.6rem * {radius_scale_str});
+  --shadow-none: none;
+  --shadow-sm: 0 16px 32px rgba(15,23,42,.08);
+  --shadow-md: 0 30px 60px rgba(15,23,42,.16);
+  --shadow-lg: 0 40px 80px rgba(15,23,42,.22);
 }}
 body {{
-  font-family: {body_font};
+  font-family: var(--font-body);
   background: var(--color-surface);
   color: var(--color-text);
   margin: 0;
   line-height: 1.6;
 }}
 h1, h2, h3, h4, h5 {{
-  font-family: {heading_font};
+  font-family: var(--font-heading);
   color: var(--color-text);
   line-height: 1.2;
 }}
 a {{
   color: var(--color-primary);
 }}
+.shadow {{ box-shadow: var(--shadow-{level}); }}
 .site-header {{
   position: sticky;
   top: 0;
@@ -1337,10 +2103,15 @@ a {{
 """
 
 
-def generate_base_css(palette: Dict[str, str], fonts: Dict[str, str]) -> str:
+def generate_base_css(
+    palette: Dict[str, str],
+    fonts: Dict[str, str],
+    radius_scale: float = 1.0,
+    shadow_level: str = "md",
+) -> str:
     """Compatibility wrapper to build the base CSS from palette and fonts."""
 
-    return build_base_css(palette, fonts)
+    return build_base_css(palette, fonts, radius_scale, shadow_level)
 
 
 def _jinja_env() -> Environment:
@@ -1390,7 +2161,7 @@ def save_project(path: Path, project: Project) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def render_project(project: Project, output_dir: Path) -> None:
+def render_site(project: Project, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     assets_dir = output_dir / "assets"
     css_dir = assets_dir / "css"
@@ -1398,20 +2169,32 @@ def render_project(project: Project, output_dir: Path) -> None:
     js_dir = assets_dir / "js"
     css_dir.mkdir(parents=True, exist_ok=True)
     img_dir.mkdir(parents=True, exist_ok=True)
-    if project.use_main_js:
-        js_dir.mkdir(parents=True, exist_ok=True)
-        (js_dir / "main.js").write_text(MAIN_JS_SNIPPET, encoding="utf-8")
-    else:
-        if js_dir.exists():
-            shutil.rmtree(js_dir)
-    css = ensure_block(project.css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
-    extra_block = extract_css_block(project.css, TEMPLATE_EXTRA_SENTINEL)
+    css_source = project.css or ""
+    css = ensure_block(css_source, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+    css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(project.gradients))
+    css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(project.motion_pref))
+    extra_block = extract_css_block(css_source, TEMPLATE_EXTRA_SENTINEL)
     if extra_block:
-        css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, extra_block)
+        css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
     (css_dir / "style.css").write_text(css, encoding="utf-8")
     for asset in project.images:
         data = base64.b64decode(asset.data_base64.encode("ascii"))
         (img_dir / asset.name).write_bytes(data)
+    js_needed = project.use_main_js or project.use_scroll_animations
+    if js_needed:
+        js_dir.mkdir(parents=True, exist_ok=True)
+        main_js_path = js_dir / "main.js"
+        site_js_path = js_dir / "site.js"
+        if project.use_main_js:
+            main_js_path.write_text(MAIN_JS_SNIPPET, encoding="utf-8")
+        elif main_js_path.exists():
+            main_js_path.unlink()
+        if project.use_scroll_animations:
+            site_js_path.write_text(SCROLL_JS_SNIPPET, encoding="utf-8")
+        elif site_js_path.exists():
+            site_js_path.unlink()
+    elif js_dir.exists():
+        shutil.rmtree(js_dir)
     env = _jinja_env()
     template = env.get_template("base.html.j2")
     nav = [{"filename": p.filename, "title": p.title} for p in project.pages]
@@ -1422,8 +2205,18 @@ def render_project(project: Project, output_dir: Path) -> None:
             pages=nav,
             content=page.html,
             include_js=project.use_main_js,
+            use_scroll_js=project.use_scroll_animations,
+            color_primary=project.palette.get("primary", DEFAULT_PALETTE["primary"]),
+            color_surface=project.palette.get("surface", DEFAULT_PALETTE["surface"]),
+            color_text=project.palette.get("text", DEFAULT_PALETTE["text"]),
+            heading_font=project.fonts.get("heading", DEFAULT_FONTS["heading"]),
+            body_font=project.fonts.get("body", DEFAULT_FONTS["body"]),
         )
         (output_dir / page.filename).write_text(html, encoding="utf-8")
+
+
+def render_project(project: Project, output_dir: Path) -> None:
+    render_site(project, output_dir)
 
 # ---------------------------------------------------------------------------
 # Recent projects manager and thumbnails
@@ -2166,6 +2959,9 @@ def create_project_from_template(
     spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
     palette_final = dict(spec.palette or palette)
     fonts_final = dict(spec.fonts or fonts)
+    gradients = dict(spec.gradients or DEFAULT_GRADIENT)
+    radius_scale = float(spec.radius_scale) if spec.radius_scale is not None else 1.0
+    shadow_level = spec.shadow_level if spec.shadow_level in SHADOW_LEVELS else "md"
 
     pages: List[Page] = []
     spec_titles = {title: filename for filename, title, _ in spec.pages}
@@ -2200,9 +2996,11 @@ def create_project_from_template(
         pages.append(Page(filename=filename, title=page_titles.get(title, title), html=body))
         existing_filenames.add(filename)
 
-    css = generate_base_css(palette_final, fonts_final)
+    css = generate_base_css(palette_final, fonts_final, radius_scale, shadow_level)
     if spec.include_helpers:
         css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+    css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(gradients))
+    css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block())
     if spec.extra_css.strip():
         css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
 
@@ -2213,8 +3011,10 @@ def create_project_from_template(
         palette=palette_final,
         fonts=fonts_final,
         template_key=template_key,
-        theme_preset="",
         images=placeholder_images(),
+        gradients=gradients,
+        radius_scale=radius_scale,
+        shadow_level=shadow_level,
     )
     project.theme_preset = next((key for key, val in THEME_PRESETS.items() if val == palette_final), "Custom")
     return project
@@ -2906,35 +3706,184 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_design_tab(self) -> QtWidgets.QWidget:
         tab = QtWidgets.QWidget(self)
-        layout = QtWidgets.QFormLayout(tab)
-        self.design_theme_combo = QtWidgets.QComboBox(tab)
+        main_layout = QtWidgets.QVBoxLayout(tab)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(10)
+
+        theme_group = QtWidgets.QGroupBox("Theme & Palette", tab)
+        theme_layout = QtWidgets.QFormLayout(theme_group)
+        theme_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.design_theme_combo = QtWidgets.QComboBox(theme_group)
         self.design_theme_combo.addItems(list(THEME_PRESETS.keys()) + ["Custom"])
-        self.design_primary = QtWidgets.QLineEdit(tab)
-        self.design_surface = QtWidgets.QLineEdit(tab)
-        self.design_text = QtWidgets.QLineEdit(tab)
-        self.design_heading_font = QtWidgets.QComboBox(tab)
+        self.design_theme_combo.setToolTip("Try curated palettes and fonts to jump-start your design.")
+        theme_layout.addRow("Try a theme", self.design_theme_combo)
+
+        def color_field(line_edit: QtWidgets.QLineEdit, swatch: QtWidgets.QLabel) -> QtWidgets.QWidget:
+            widget = QtWidgets.QWidget(theme_group)
+            row = QtWidgets.QHBoxLayout(widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(6)
+            row.addWidget(line_edit, 1)
+            swatch.setFixedSize(36, 20)
+            swatch.setFrameShape(QtWidgets.QFrame.Shape.Panel)
+            swatch.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
+            row.addWidget(swatch)
+            return widget
+
+        self.design_primary = QtWidgets.QLineEdit(theme_group)
+        self.design_primary.setPlaceholderText("#2563eb")
+        self.design_primary.setToolTip("Accent color used for buttons and highlights.")
+        self.primary_swatch = QtWidgets.QLabel(theme_group)
+        theme_layout.addRow("Primary color", color_field(self.design_primary, self.primary_swatch))
+
+        self.design_surface = QtWidgets.QLineEdit(theme_group)
+        self.design_surface.setPlaceholderText("#f8fafc")
+        self.design_surface.setToolTip("Background color for sections and cards.")
+        self.surface_swatch = QtWidgets.QLabel(theme_group)
+        theme_layout.addRow("Surface color", color_field(self.design_surface, self.surface_swatch))
+
+        self.design_text = QtWidgets.QLineEdit(theme_group)
+        self.design_text.setPlaceholderText("#0f172a")
+        self.design_text.setToolTip("Main text color for paragraphs and headings.")
+        self.text_swatch = QtWidgets.QLabel(theme_group)
+        theme_layout.addRow("Text color", color_field(self.design_text, self.text_swatch))
+
+        self.design_heading_font = QtWidgets.QComboBox(theme_group)
         self.design_heading_font.addItems(FONT_STACKS)
-        self.design_body_font = QtWidgets.QComboBox(tab)
+        self.design_heading_font.setToolTip("Font used for headings and large titles.")
+        theme_layout.addRow("Heading font", self.design_heading_font)
+
+        self.design_body_font = QtWidgets.QComboBox(theme_group)
         self.design_body_font.addItems(FONT_STACKS)
-        layout.addRow("Theme preset", self.design_theme_combo)
-        layout.addRow("Primary color", self.design_primary)
-        layout.addRow("Surface color", self.design_surface)
-        layout.addRow("Text color", self.design_text)
-        layout.addRow("Heading font", self.design_heading_font)
-        layout.addRow("Body font", self.design_body_font)
-        btn_row = QtWidgets.QHBoxLayout()
-        self.btn_apply_theme = QtWidgets.QPushButton("Apply theme")
+        self.design_body_font.setToolTip("Font used for body copy and long-form text.")
+        theme_layout.addRow("Body font", self.design_body_font)
+
+        button_row = QtWidgets.QHBoxLayout()
+        self.btn_apply_theme = QtWidgets.QPushButton("Apply theme", theme_group)
         self.btn_apply_theme.setMinimumHeight(40)
-        self.btn_add_helpers = QtWidgets.QPushButton("Add CSS helpers")
+        self.btn_add_helpers = QtWidgets.QPushButton("Add CSS helpers", theme_group)
         self.btn_add_helpers.setMinimumHeight(40)
-        btn_row.addWidget(self.btn_apply_theme)
-        btn_row.addWidget(self.btn_add_helpers)
-        layout.addRow(btn_row)
+        button_row.addWidget(self.btn_apply_theme)
+        button_row.addWidget(self.btn_add_helpers)
+        theme_layout.addRow(button_row)
+
+        main_layout.addWidget(theme_group)
+
+        gradient_group = QtWidgets.QGroupBox("Gradients", tab)
+        gradient_layout = QtWidgets.QFormLayout(gradient_group)
+        gradient_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.gradient_from = QtWidgets.QLineEdit(gradient_group)
+        self.gradient_from.setPlaceholderText(DEFAULT_GRADIENT["from"])
+        self.gradient_from.setToolTip("Start color for the gradient background helper.")
+        gradient_layout.addRow("From", self.gradient_from)
+
+        self.gradient_to = QtWidgets.QLineEdit(gradient_group)
+        self.gradient_to.setPlaceholderText(DEFAULT_GRADIENT["to"])
+        self.gradient_to.setToolTip("End color for the gradient background helper.")
+        gradient_layout.addRow("To", self.gradient_to)
+
+        self.gradient_angle_combo = QtWidgets.QComboBox(gradient_group)
+        self.gradient_angle_combo.addItems(GRADIENT_ANGLES)
+        self.gradient_angle_combo.setEditable(True)
+        self.gradient_angle_combo.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
+        self.gradient_angle_combo.setToolTip("Direction of the gradient (e.g., 135deg or to bottom).")
+        angle_row = QtWidgets.QHBoxLayout()
+        angle_widget = QtWidgets.QWidget(gradient_group)
+        angle_widget.setLayout(angle_row)
+        angle_row.setContentsMargins(0, 0, 0, 0)
+        angle_row.setSpacing(6)
+        angle_row.addWidget(self.gradient_angle_combo, 1)
+        self.gradient_preview = QtWidgets.QLabel(gradient_group)
+        self.gradient_preview.setFixedSize(60, 20)
+        self.gradient_preview.setFrameShape(QtWidgets.QFrame.Shape.Panel)
+        self.gradient_preview.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
+        angle_row.addWidget(self.gradient_preview)
+        gradient_layout.addRow("Angle", angle_widget)
+
+        gradient_buttons = QtWidgets.QHBoxLayout()
+        self.btn_apply_gradient = QtWidgets.QPushButton("Apply Gradient Helpers", gradient_group)
+        self.btn_apply_gradient.setToolTip("Updates the gradient utility classes in your CSS.")
+        self.btn_insert_gradient_hero = QtWidgets.QPushButton("Insert Gradient Hero Background", gradient_group)
+        self.btn_insert_gradient_hero.setToolTip("Insert a ready-made hero section that uses the gradient helpers.")
+        gradient_buttons.addWidget(self.btn_apply_gradient)
+        gradient_buttons.addWidget(self.btn_insert_gradient_hero)
+        gradient_layout.addRow(gradient_buttons)
+
+        main_layout.addWidget(gradient_group)
+
+        shape_group = QtWidgets.QGroupBox("Corners & Depth", tab)
+        shape_layout = QtWidgets.QFormLayout(shape_group)
+        shape_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.radius_spin = QtWidgets.QDoubleSpinBox(shape_group)
+        self.radius_spin.setRange(0.5, 2.0)
+        self.radius_spin.setSingleStep(0.05)
+        self.radius_spin.setToolTip("Makes corners more round across cards and buttons.")
+        shape_layout.addRow("Radius scale", self.radius_spin)
+
+        self.shadow_combo = QtWidgets.QComboBox(shape_group)
+        self.shadow_combo.addItems(SHADOW_LEVELS)
+        self.shadow_combo.setToolTip("Adds soft shadow depth to the .shadow utility.")
+        shape_layout.addRow("Shadow level", self.shadow_combo)
+
+        main_layout.addWidget(shape_group)
+
+        motion_group = QtWidgets.QGroupBox("Motion", tab)
+        motion_layout = QtWidgets.QFormLayout(motion_group)
+        motion_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.motion_enable_scroll = QtWidgets.QCheckBox("Enable appear-on-scroll (adds small JS)", motion_group)
+        self.motion_enable_scroll.setToolTip("Reveals elements as they enter the viewport.")
+        motion_layout.addRow(self.motion_enable_scroll)
+
+        self.motion_pref_combo = QtWidgets.QComboBox(motion_group)
+        self.motion_pref_combo.addItems(["Respect visitor setting", "Force on", "Force off"])
+        self.motion_pref_combo.setToolTip("Choose how to handle reduced-motion preferences.")
+        motion_layout.addRow("Reduced motion", self.motion_pref_combo)
+
+        self.motion_effect_combo = QtWidgets.QComboBox(motion_group)
+        self.motion_effect_combo.addItems(MOTION_EFFECTS)
+        self.motion_effect_combo.setToolTip("Default animation applied when wrapping content.")
+        motion_layout.addRow("Default effect", self.motion_effect_combo)
+
+        self.motion_easing_combo = QtWidgets.QComboBox(motion_group)
+        self.motion_easing_combo.addItems(list(MOTION_EASINGS.keys()))
+        self.motion_easing_combo.setToolTip("Easing curve for wrapped animations.")
+        motion_layout.addRow("Easing", self.motion_easing_combo)
+
+        duration_row = QtWidgets.QHBoxLayout()
+        duration_widget = QtWidgets.QWidget(motion_group)
+        duration_widget.setLayout(duration_row)
+        duration_row.setContentsMargins(0, 0, 0, 0)
+        duration_row.setSpacing(6)
+        self.motion_duration_spin = QtWidgets.QSpinBox(motion_group)
+        self.motion_duration_spin.setRange(100, 5000)
+        self.motion_duration_spin.setSingleStep(50)
+        self.motion_duration_spin.setSuffix(" ms")
+        self.motion_duration_spin.setToolTip("How long the animation plays.")
+        duration_row.addWidget(self.motion_duration_spin)
+        self.motion_delay_spin = QtWidgets.QSpinBox(motion_group)
+        self.motion_delay_spin.setRange(0, 3000)
+        self.motion_delay_spin.setSingleStep(50)
+        self.motion_delay_spin.setSuffix(" ms")
+        self.motion_delay_spin.setToolTip("Delay before the animation starts.")
+        duration_row.addWidget(self.motion_delay_spin)
+        motion_layout.addRow("Duration & delay", duration_widget)
+
+        self.btn_wrap_motion_default = QtWidgets.QPushButton("Wrap Selection with Animation", motion_group)
+        self.btn_wrap_motion_default.setToolTip("Wraps the selected HTML with your default animation settings.")
+        motion_layout.addRow(self.btn_wrap_motion_default)
+
+        main_layout.addWidget(motion_group)
+
         note = QtWidgets.QLabel(
-            "Helper tip: theme updates refresh the base CSS. Helpers add spacing, buttons, and layout utilities."
+            "Design changes update your CSS instantly. Helpers stay tidy thanks to sentinel markers."
         )
         note.setWordWrap(True)
-        layout.addRow(note)
+        main_layout.addWidget(note)
+        main_layout.addStretch(1)
         return tab
 
     def _build_assets_tab(self) -> QtWidgets.QWidget:
@@ -3007,6 +3956,35 @@ class MainWindow(QtWidgets.QMainWindow):
                     action = QtGui.QAction(snippet.label, self)
                     action.triggered.connect(lambda checked=False, k=key: self.insert_snippet(k, section=False))
                     self.menu_components.addAction(action)
+            self.menu_graphics = insert_menu.addMenu("Graphics")
+            if self.menu_graphics is not None:
+                act_blob = QtGui.QAction("Blob shape", self)
+                act_blob.triggered.connect(lambda checked=False: self.insert_graphic(svg_blob()))
+                self.menu_graphics.addAction(act_blob)
+                act_dots = QtGui.QAction("Dots pattern", self)
+                act_dots.triggered.connect(lambda checked=False: self.insert_graphic(svg_dots()))
+                self.menu_graphics.addAction(act_dots)
+                act_stripes = QtGui.QAction("Diagonal stripes", self)
+                act_stripes.triggered.connect(lambda checked=False: self.insert_graphic(svg_diagonal_stripes()))
+                self.menu_graphics.addAction(act_stripes)
+                act_banner = QtGui.QAction("Gradient banner", self)
+                act_banner.triggered.connect(
+                    lambda checked=False: self.insert_graphic(
+                        '<div class="bg-gradient" style="width:100%;height:220px;"></div>'
+                    )
+                )
+                self.menu_graphics.addAction(act_banner)
+            self.menu_motion = insert_menu.addMenu("Motion")
+            if self.menu_motion is not None:
+                fade_act = QtGui.QAction("Wrap → Fade in", self)
+                fade_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("fade"))
+                zoom_act = QtGui.QAction("Wrap → Zoom in", self)
+                zoom_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("zoom"))
+                blur_act = QtGui.QAction("Wrap → Blur in", self)
+                blur_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("blur"))
+                float_act = QtGui.QAction("Loop → Float", self)
+                float_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("float", loop=True))
+                self.menu_motion.addActions([fade_act, zoom_act, blur_act, float_act])
 
         m_publish = bar.addMenu("&Publish")
         self.act_publish = QtGui.QAction("Publish…", self)
@@ -3048,6 +4026,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_remove_page.clicked.connect(self.remove_page)
         self.btn_apply_theme.clicked.connect(self.apply_theme)
         self.btn_add_helpers.clicked.connect(self.add_css_helpers)
+        self.btn_apply_gradient.clicked.connect(self.apply_gradient_helpers)
+        self.btn_insert_gradient_hero.clicked.connect(self.insert_gradient_hero)
         self.btn_add_asset.clicked.connect(self._browse_assets)
         self.btn_rename_asset.clicked.connect(self._rename_asset)
         self.btn_remove_asset.clicked.connect(self._remove_asset)
@@ -3063,6 +4043,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_get_started.triggered.connect(self._open_help_page)
         self.act_publish.triggered.connect(self.open_publish_dialog)
         self.act_ai.triggered.connect(self.toggle_ai_dock)
+        self.design_primary.textChanged.connect(self._update_color_swatches)
+        self.design_surface.textChanged.connect(self._update_color_swatches)
+        self.design_text.textChanged.connect(self._update_color_swatches)
+        self.gradient_from.textChanged.connect(self._update_gradient_preview)
+        self.gradient_to.textChanged.connect(self._update_gradient_preview)
+        self.gradient_angle_combo.editTextChanged.connect(self._update_gradient_preview)
+        self.radius_spin.valueChanged.connect(self._on_radius_scale_changed)
+        self.shadow_combo.currentTextChanged.connect(self._on_shadow_level_changed)
+        self.motion_enable_scroll.toggled.connect(self._toggle_scroll_animations)
+        self.motion_pref_combo.currentIndexChanged.connect(self._on_motion_pref_changed)
+        self.motion_effect_combo.currentTextChanged.connect(self._on_motion_defaults_changed)
+        self.motion_easing_combo.currentTextChanged.connect(self._on_motion_defaults_changed)
+        self.motion_duration_spin.valueChanged.connect(self._on_motion_defaults_changed)
+        self.motion_delay_spin.valueChanged.connect(self._on_motion_defaults_changed)
+        self.btn_wrap_motion_default.clicked.connect(self.wrap_selection_default_motion)
+
+        self.shortcut_gradient = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+G"), self)
+        self.shortcut_gradient.activated.connect(self.apply_gradient_helpers)
+        self.shortcut_motion = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+M"), self)
+        self.shortcut_motion.activated.connect(self.wrap_selection_default_motion)
 
     def _load_project_into_ui(self) -> None:
         self._refresh_pages_list()
@@ -3084,6 +4084,57 @@ class MainWindow(QtWidgets.QMainWindow):
         self.design_text.setText(self.project.palette.get("text", "#0f172a"))
         self.design_heading_font.setCurrentText(self.project.fonts.get("heading", FONT_STACKS[0]))
         self.design_body_font.setCurrentText(self.project.fonts.get("body", FONT_STACKS[0]))
+        self.design_theme_combo.setCurrentText(
+            self.project.theme_preset if self.project.theme_preset in THEME_PRESETS else "Custom"
+        )
+        gradient = self.project.gradients or DEFAULT_GRADIENT
+        self.gradient_from.blockSignals(True)
+        self.gradient_to.blockSignals(True)
+        self.gradient_angle_combo.blockSignals(True)
+        self.gradient_from.setText(gradient.get("from", DEFAULT_GRADIENT["from"]))
+        self.gradient_to.setText(gradient.get("to", DEFAULT_GRADIENT["to"]))
+        self.gradient_angle_combo.setCurrentText(gradient.get("angle", DEFAULT_GRADIENT["angle"]))
+        self.gradient_from.blockSignals(False)
+        self.gradient_to.blockSignals(False)
+        self.gradient_angle_combo.blockSignals(False)
+        self.radius_spin.blockSignals(True)
+        self.radius_spin.setValue(float(self.project.radius_scale or 1.0))
+        self.radius_spin.blockSignals(False)
+        shadow_value = self.project.shadow_level if self.project.shadow_level in SHADOW_LEVELS else "md"
+        self.shadow_combo.blockSignals(True)
+        self.shadow_combo.setCurrentText(shadow_value)
+        self.shadow_combo.blockSignals(False)
+        self.motion_enable_scroll.blockSignals(True)
+        self.motion_enable_scroll.setChecked(self.project.use_scroll_animations)
+        self.motion_enable_scroll.blockSignals(False)
+        pref_label = next(
+            (label for label, value in MOTION_PREF_OPTIONS.items() if value == self.project.motion_pref),
+            "Respect visitor setting",
+        )
+        self.motion_pref_combo.blockSignals(True)
+        self.motion_pref_combo.setCurrentText(pref_label)
+        self.motion_pref_combo.blockSignals(False)
+        effect_value = (
+            self.project.motion_default_effect if self.project.motion_default_effect in MOTION_EFFECTS else "none"
+        )
+        self.motion_effect_combo.blockSignals(True)
+        self.motion_effect_combo.setCurrentText(effect_value)
+        self.motion_effect_combo.blockSignals(False)
+        easing_label = next(
+            (label for label, value in MOTION_EASINGS.items() if value == self.project.motion_default_easing),
+            "Gentle ease",
+        )
+        self.motion_easing_combo.blockSignals(True)
+        self.motion_easing_combo.setCurrentText(easing_label)
+        self.motion_easing_combo.blockSignals(False)
+        self.motion_duration_spin.blockSignals(True)
+        self.motion_duration_spin.setValue(int(self.project.motion_default_duration))
+        self.motion_duration_spin.blockSignals(False)
+        self.motion_delay_spin.blockSignals(True)
+        self.motion_delay_spin.setValue(int(self.project.motion_default_delay))
+        self.motion_delay_spin.blockSignals(False)
+        self._update_color_swatches()
+        self._update_gradient_preview()
         self._refresh_assets()
         self.update_window_title()
 
@@ -3213,7 +4264,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._preview_tmp and os.path.isdir(self._preview_tmp):
             shutil.rmtree(self._preview_tmp, ignore_errors=True)
         self._preview_tmp = tempfile.mkdtemp(prefix="webineer_preview_")
-        render_project(self.project, Path(self._preview_tmp))
+        render_site(self.project, Path(self._preview_tmp))
         index = self.pages_list.currentRow()
         if index < 0 and self.project.pages:
             index = 0
@@ -3222,6 +4273,13 @@ class MainWindow(QtWidgets.QMainWindow):
             file_path = Path(self._preview_tmp) / page.filename
             self.preview.setUrl(QtCore.QUrl.fromLocalFile(str(file_path)))
         self.status_bar.showMessage("Preview updated", 1500)
+
+    def wrap_selection_with(self, prefix: str, suffix: str) -> None:
+        cursor = self.html_editor.textCursor()
+        if not cursor.hasSelection():
+            return
+        selected = cursor.selectedText().replace("\u2029", "\n")
+        cursor.insertText(f"{prefix}{selected}{suffix}")
 
     def insert_snippet(self, key: str, section: bool) -> None:
         snippet = SECTIONS_SNIPPETS[key] if section else COMPONENT_SNIPPETS[key]
@@ -3235,8 +4293,48 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project.use_main_js = True
         self.update_preview()
 
+    def insert_graphic(self, markup: str) -> None:
+        if not self.project:
+            return
+        cursor = self.html_editor.textCursor()
+        if not cursor.hasSelection():
+            cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
+        cursor.insertText(f"\n\n{markup.strip()}\n\n")
+        self.html_editor.setTextCursor(cursor)
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("Graphic inserted", 2000)
+
     # Theme helpers -----------------------------------------------------
+    def _compose_css(
+        self,
+        *,
+        extra_override: Optional[str] = None,
+        helper_override: Optional[str] = None,
+    ) -> str:
+        if not self.project:
+            return ""
+        current_css = self.css_editor.toPlainText()
+        helper_block = helper_override or extract_css_block(current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
+        extra_block = extra_override
+        if extra_block is None:
+            extra_block = extract_css_block(current_css, TEMPLATE_EXTRA_SENTINEL)
+        base_css = generate_base_css(
+            self.project.palette,
+            self.project.fonts,
+            self.project.radius_scale,
+            self.project.shadow_level,
+        )
+        css = ensure_block(base_css, CSS_HELPERS_SENTINEL, helper_block)
+        css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(self.project.gradients))
+        css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(self.project.motion_pref))
+        if extra_block:
+            css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
+        return css
+
     def apply_theme(self) -> None:
+        if not self.project:
+            return
         palette = {
             "primary": self.design_primary.text().strip() or "#2563eb",
             "surface": self.design_surface.text().strip() or "#f8fafc",
@@ -3247,23 +4345,59 @@ class MainWindow(QtWidgets.QMainWindow):
             "body": self.design_body_font.currentText(),
         }
         theme = self.design_theme_combo.currentText()
+        current_css = self.css_editor.toPlainText()
+        helper_block = extract_css_block(current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
+        existing_extra = extract_css_block(current_css, TEMPLATE_EXTRA_SENTINEL)
+        clean_extra = strip_theme_extras(existing_extra)
+        style = THEME_STYLE_PRESETS.get(theme)
         if theme in THEME_PRESETS:
             palette = dict(THEME_PRESETS[theme])
             self.design_primary.setText(palette["primary"])
             self.design_surface.setText(palette["surface"])
             self.design_text.setText(palette["text"])
-        base_css = generate_base_css(palette, fonts)
-        current_css = self.css_editor.toPlainText()
-        helper_block = extract_css_block(current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
-        new_css = ensure_block(base_css, CSS_HELPERS_SENTINEL, helper_block)
-        extra_block = extract_css_block(current_css, TEMPLATE_EXTRA_SENTINEL)
-        if extra_block:
-            new_css = ensure_block(new_css, TEMPLATE_EXTRA_SENTINEL, extra_block)
-        self.css_editor.setPlainText(new_css)
-        self.project.css = new_css
+        if style:
+            fonts = dict(style.get("fonts", fonts))
+            gradient_info = style.get("gradients")
+            if isinstance(gradient_info, dict):
+                grad_from = str(gradient_info.get("from", DEFAULT_GRADIENT["from"]))
+                grad_to = str(gradient_info.get("to", DEFAULT_GRADIENT["to"]))
+                grad_angle = str(gradient_info.get("angle", DEFAULT_GRADIENT["angle"]))
+                self.project.gradients = {"from": grad_from, "to": grad_to, "angle": grad_angle}
+                self.gradient_from.blockSignals(True)
+                self.gradient_to.blockSignals(True)
+                self.gradient_angle_combo.blockSignals(True)
+                self.gradient_from.setText(grad_from)
+                self.gradient_to.setText(grad_to)
+                self.gradient_angle_combo.setCurrentText(grad_angle)
+                self.gradient_from.blockSignals(False)
+                self.gradient_to.blockSignals(False)
+                self.gradient_angle_combo.blockSignals(False)
+            if style.get("radius_scale") is not None:
+                radius_val = float(style.get("radius_scale", 1.0))
+                self.project.radius_scale = radius_val
+                self.radius_spin.blockSignals(True)
+                self.radius_spin.setValue(radius_val)
+                self.radius_spin.blockSignals(False)
+            if style.get("shadow_level") in SHADOW_LEVELS:
+                shadow_val = str(style.get("shadow_level"))
+                self.project.shadow_level = shadow_val
+                self.shadow_combo.blockSignals(True)
+                self.shadow_combo.setCurrentText(shadow_val)
+                self.shadow_combo.blockSignals(False)
+            extra_css = str(style.get("extra_css", "")).strip()
+            clean_extra = clean_extra.strip()
+            if extra_css:
+                clean_extra = f"{clean_extra}\n\n{extra_css}".strip() if clean_extra else extra_css
         self.project.palette = palette
         self.project.fonts = fonts
         self.project.theme_preset = theme
+        self.design_heading_font.setCurrentText(fonts["heading"])
+        self.design_body_font.setCurrentText(fonts["body"])
+        css = self._compose_css(extra_override=clean_extra or None, helper_override=helper_block)
+        self.css_editor.setPlainText(css)
+        self.project.css = css
+        self._update_color_swatches()
+        self._update_gradient_preview()
         self.set_dirty(True)
         self.update_preview()
         self.status_bar.showMessage("Theme applied", 4000)
@@ -3278,6 +4412,146 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project.css = updated
         self.update_preview()
         self.set_dirty(True)
+
+    def apply_gradient_helpers(self) -> None:
+        if not self.project:
+            return
+        grad_from = self.gradient_from.text().strip() or DEFAULT_GRADIENT["from"]
+        grad_to = self.gradient_to.text().strip() or DEFAULT_GRADIENT["to"]
+        grad_angle = self.gradient_angle_combo.currentText().strip() or DEFAULT_GRADIENT["angle"]
+        self.project.gradients = {"from": grad_from, "to": grad_to, "angle": grad_angle}
+        css = self._compose_css()
+        self.css_editor.setPlainText(css)
+        self.project.css = css
+        self._update_gradient_preview()
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("Gradient helpers updated", 3000)
+
+    def insert_gradient_hero(self) -> None:
+        if not self.project:
+            return
+        cursor = self.html_editor.textCursor()
+        if cursor.hasSelection():
+            self.wrap_selection_with('<section class="hero bg-gradient text-on-gradient">\n', '\n</section>')
+        else:
+            snippet = """\n\n<section class="hero bg-gradient text-on-gradient">\n  <h2>Gradient hero</h2>\n  <p>Add your pitch here.</p>\n  <a class="btn btn-gradient" href="#">Call to action</a>\n</section>\n\n"""
+            cursor.insertText(snippet)
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("Gradient hero inserted", 2500)
+
+    def _update_color_swatches(self) -> None:
+        def set_swatch(label: QtWidgets.QLabel, color: str) -> None:
+            label.setStyleSheet(
+                f"background: {color}; border: 1px solid rgba(148,163,184,0.6); border-radius: 4px;"
+            )
+
+        set_swatch(self.primary_swatch, self.design_primary.text().strip() or DEFAULT_PALETTE["primary"])
+        set_swatch(self.surface_swatch, self.design_surface.text().strip() or DEFAULT_PALETTE["surface"])
+        set_swatch(self.text_swatch, self.design_text.text().strip() or DEFAULT_PALETTE["text"])
+
+    def _update_gradient_preview(self) -> None:
+        grad_from = self.gradient_from.text().strip() or DEFAULT_GRADIENT["from"]
+        grad_to = self.gradient_to.text().strip() or DEFAULT_GRADIENT["to"]
+        grad_angle = self.gradient_angle_combo.currentText().strip() or DEFAULT_GRADIENT["angle"]
+        self.gradient_preview.setStyleSheet(
+            f"background: linear-gradient({grad_angle}, {grad_from}, {grad_to});"
+            " border: 1px solid rgba(148,163,184,0.6); border-radius: 4px;"
+        )
+
+    def _on_radius_scale_changed(self, value: float) -> None:
+        if not self.project:
+            return
+        self.project.radius_scale = float(value)
+        css = self._compose_css()
+        self.css_editor.setPlainText(css)
+        self.project.css = css
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("Radius scale updated", 2000)
+
+    def _on_shadow_level_changed(self, value: str) -> None:
+        if not self.project or value not in SHADOW_LEVELS:
+            return
+        self.project.shadow_level = value
+        css = self._compose_css()
+        self.css_editor.setPlainText(css)
+        self.project.css = css
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("Shadow level updated", 2000)
+
+    def _toggle_scroll_animations(self, enabled: bool) -> None:
+        if not self.project:
+            return
+        self.project.use_scroll_animations = bool(enabled)
+        self.set_dirty(True)
+        self.update_preview()
+        message = "Scroll animations enabled" if enabled else "Scroll animations disabled"
+        self.status_bar.showMessage(message, 2500)
+
+    def _on_motion_pref_changed(self) -> None:
+        if not self.project:
+            return
+        label = self.motion_pref_combo.currentText()
+        pref = MOTION_PREF_OPTIONS.get(label, "respect")
+        self.project.motion_pref = pref
+        css = self._compose_css()
+        self.css_editor.setPlainText(css)
+        self.project.css = css
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("Motion preference updated", 2500)
+
+    def _on_motion_defaults_changed(self) -> None:
+        if not self.project:
+            return
+        effect = self.motion_effect_combo.currentText() or "none"
+        easing_label = self.motion_easing_combo.currentText()
+        easing = MOTION_EASINGS.get(easing_label, MOTION_EASINGS["Gentle ease"])
+        self.project.motion_default_effect = effect
+        self.project.motion_default_easing = easing
+        self.project.motion_default_duration = int(self.motion_duration_spin.value())
+        self.project.motion_default_delay = int(self.motion_delay_spin.value())
+        self.set_dirty(True)
+
+    def _motion_style_inline(self) -> str:
+        if not self.project:
+            return ""
+        duration = max(int(self.project.motion_default_duration), 0)
+        delay = max(int(self.project.motion_default_delay), 0)
+        easing = self.project.motion_default_easing or MOTION_EASINGS["Gentle ease"]
+        return (
+            f' style="--anim-duration:{duration}ms;--anim-delay:{delay}ms;--anim-ease:{easing};"'
+            if duration or delay or easing
+            else ""
+        )
+
+    def _apply_motion_wrapper(self, effect: str, *, loop: bool = False) -> None:
+        if not self.project:
+            return
+        if not loop and effect == "none":
+            return
+        prefix: str
+        if loop:
+            prefix = f'<div class="anim anim-float"{self._motion_style_inline()}>'
+        elif self.project.use_scroll_animations:
+            prefix = f'<div data-animate="{effect}"{self._motion_style_inline()}>'
+        else:
+            classes = "anim"
+            if effect:
+                classes += f" anim-{effect}"
+            prefix = f'<div class="{classes}"{self._motion_style_inline()}>'
+        self.wrap_selection_with(prefix, "</div>")
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("Animation wrapper applied", 2500)
+
+    def wrap_selection_default_motion(self) -> None:
+        if not self.project:
+            return
+        self._apply_motion_wrapper(self.project.motion_default_effect)
 
     # Asset management --------------------------------------------------
     def _refresh_assets(self) -> None:
