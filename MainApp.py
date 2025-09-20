@@ -567,6 +567,33 @@ TEMPLATE_EXTRA_SENTINEL = "/* === WEBINEER TEMPLATE EXTRA CSS === */"
 BACKGROUND_BLOCK_START = "/* === WEBINEER BACKGROUNDS START === */"
 BACKGROUND_BLOCK_END = "/* === WEBINEER BACKGROUNDS END === */"
 BACKGROUND_COMMENT_PREFIX = "/* Webineer Background"
+BACKGROUND_SENTINEL = "/* === WEBINEER BACKGROUND RULES === */"
+
+
+def _set_or_replace_block(css: str, sentinel: str, block: str) -> str:
+    """Insert or replace a sentinel-guarded CSS block."""
+
+    if sentinel in css:
+        head, tail = css.split(sentinel, 1)
+        end = len(tail)
+        for marker in (
+            BACKGROUND_SENTINEL,
+            CSS_HELPERS_SENTINEL,
+            TEMPLATE_EXTRA_SENTINEL,
+            BG_HELPERS_SENTINEL,
+            GRADIENT_HELPERS_SENTINEL,
+            ANIM_HELPERS_SENTINEL,
+        ):
+            if marker == sentinel:
+                continue
+            pos = tail.find(marker)
+            if pos != -1 and pos < end:
+                end = pos
+        tail = tail[end:]
+        return f"{head}{sentinel}\n{block.strip()}\n{tail.lstrip()}".lstrip("\n")
+    base = css.rstrip()
+    snippet = f"{sentinel}\n{block.strip()}\n" if block.strip() else f"{sentinel}\n"
+    return (base + ("\n\n" if base else "") + snippet).lstrip("\n")
 
 CSS_HELPERS_BLOCK = """:root {
   --space-0: 0;
@@ -957,6 +984,7 @@ CSS_SENTINELS = (
     GRADIENT_HELPERS_SENTINEL,
     ANIM_HELPERS_SENTINEL,
     TEMPLATE_EXTRA_SENTINEL,
+    BACKGROUND_SENTINEL,
 )
 
 
@@ -6541,342 +6569,299 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setStatusBar(status)
         self.status_bar = status
 
-    def _build_design_tab(self) -> QtWidgets.QWidget:
-        tab = QtWidgets.QWidget(self)
-        main_layout = QtWidgets.QVBoxLayout(tab)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(10)
 
-        theme_group = QtWidgets.QGroupBox("Theme & Palette", tab)
-        theme_layout = QtWidgets.QFormLayout(theme_group)
-        theme_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+def _build_design_tab(self) -> QtWidgets.QWidget:
+    scroll = QtWidgets.QScrollArea(self)
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
 
-        self.design_theme_combo = QtWidgets.QComboBox(theme_group)
-        self.design_theme_combo.addItems(
-            list(THEME_PRESETS.keys()) + ["Custom"])
-        self.design_theme_combo.setToolTip(
-            "Try curated palettes and fonts to jump-start your design.")
-        theme_layout.addRow("Try a theme", self.design_theme_combo)
+    self.design_root = QtWidgets.QWidget(scroll)
+    main_layout = QtWidgets.QVBoxLayout(self.design_root)
+    main_layout.setContentsMargins(10, 8, 10, 8)
+    main_layout.setSpacing(12)
 
-        def color_field(line_edit: QtWidgets.QLineEdit,
-     swatch: QtWidgets.QLabel) -> QtWidgets.QWidget:
-            widget = QtWidgets.QWidget(theme_group)
-            row = QtWidgets.QHBoxLayout(widget)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(6)
-            row.addWidget(line_edit, 1)
-            swatch.setFixedSize(36, 20)
-            swatch.setFrameShape(QtWidgets.QFrame.Shape.Panel)
-            swatch.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
-            row.addWidget(swatch)
-            return widget
+    theme_group = QtWidgets.QGroupBox("Theme & Palette", self.design_root)
+    theme_layout = QtWidgets.QFormLayout(theme_group)
+    theme_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    theme_layout.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows)
 
-        self.design_primary = QtWidgets.QLineEdit(theme_group)
-        self.design_primary.setPlaceholderText("#2563eb")
-        self.design_primary.setToolTip(
-            "Accent color used for buttons and highlights.")
-        self.primary_swatch = QtWidgets.QLabel(theme_group)
-        theme_layout.addRow(
-    "Primary color",
-    color_field(
-        self.design_primary,
-         self.primary_swatch))
+    self.design_theme_combo = QtWidgets.QComboBox(theme_group)
+    self.design_theme_combo.addItems(list(THEME_PRESETS.keys()) + ["Custom"])
+    self.design_theme_combo.setToolTip("Try curated palettes and fonts to jump-start your design.")
+    self.design_theme_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+    self.design_theme_combo.setMinimumContentsLength(10)
+    theme_layout.addRow("Try a theme", self.design_theme_combo)
 
-        self.design_surface = QtWidgets.QLineEdit(theme_group)
-        self.design_surface.setPlaceholderText("#f8fafc")
-        self.design_surface.setToolTip(
-            "Background color for sections and cards.")
-        self.surface_swatch = QtWidgets.QLabel(theme_group)
-        theme_layout.addRow(
-    "Surface color",
-    color_field(
-        self.design_surface,
-         self.surface_swatch))
+    def color_field(line_edit: QtWidgets.QLineEdit, swatch: QtWidgets.QLabel) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget(theme_group)
+        row = QtWidgets.QHBoxLayout(widget)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addWidget(line_edit, 1)
+        swatch.setFixedSize(36, 20)
+        swatch.setFrameShape(QtWidgets.QFrame.Shape.Panel)
+        swatch.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
+        row.addWidget(swatch)
+        return widget
 
-        self.design_text = QtWidgets.QLineEdit(theme_group)
-        self.design_text.setPlaceholderText("#0f172a")
-        self.design_text.setToolTip(
-            "Main text color for paragraphs and headings.")
-        self.text_swatch = QtWidgets.QLabel(theme_group)
-        theme_layout.addRow(
-    "Text color",
-    color_field(
-        self.design_text,
-         self.text_swatch))
+    self.design_primary = QtWidgets.QLineEdit(theme_group)
+    self.design_primary.setPlaceholderText("#2563eb")
+    self.design_primary.setToolTip("Accent color used for buttons and highlights.")
+    self.primary_swatch = QtWidgets.QLabel(theme_group)
+    theme_layout.addRow("Primary color", color_field(self.design_primary, self.primary_swatch))
 
-        self.design_heading_font = QtWidgets.QComboBox(theme_group)
-        self.design_heading_font.addItems(FONT_STACKS)
-        self.design_heading_font.setToolTip(
-            "Font used for headings and large titles.")
-        theme_layout.addRow("Heading font", self.design_heading_font)
+    self.design_surface = QtWidgets.QLineEdit(theme_group)
+    self.design_surface.setPlaceholderText("#f8fafc")
+    self.design_surface.setToolTip("Background color for sections and cards.")
+    self.surface_swatch = QtWidgets.QLabel(theme_group)
+    theme_layout.addRow("Surface color", color_field(self.design_surface, self.surface_swatch))
 
-        self.design_body_font = QtWidgets.QComboBox(theme_group)
-        self.design_body_font.addItems(FONT_STACKS)
-        self.design_body_font.setToolTip(
-            "Font used for body copy and long-form text.")
-        theme_layout.addRow("Body font", self.design_body_font)
+    self.design_text = QtWidgets.QLineEdit(theme_group)
+    self.design_text.setPlaceholderText("#0f172a")
+    self.design_text.setToolTip("Main text color for paragraphs and headings.")
+    self.text_swatch = QtWidgets.QLabel(theme_group)
+    theme_layout.addRow("Text color", color_field(self.design_text, self.text_swatch))
 
-        button_row = QtWidgets.QHBoxLayout()
-        self.btn_apply_theme = QtWidgets.QPushButton(
-            "Apply theme", theme_group)
-        self.btn_apply_theme.setMinimumHeight(40)
-        self.btn_add_helpers = QtWidgets.QPushButton(
-            "Add CSS helpers", theme_group)
-        self.btn_add_helpers.setMinimumHeight(40)
-        button_row.addWidget(self.btn_apply_theme)
-        button_row.addWidget(self.btn_add_helpers)
-        theme_layout.addRow(button_row)
+    self.design_heading_font = QtWidgets.QComboBox(theme_group)
+    self.design_heading_font.addItems(FONT_STACKS)
+    self.design_heading_font.setToolTip("Font used for headings and large titles.")
+    self.design_heading_font.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+    self.design_heading_font.setMinimumContentsLength(12)
+    theme_layout.addRow("Heading font", self.design_heading_font)
 
-        main_layout.addWidget(theme_group)
+    self.design_body_font = QtWidgets.QComboBox(theme_group)
+    self.design_body_font.addItems(FONT_STACKS)
+    self.design_body_font.setToolTip("Font used for body copy and long-form text.")
+    self.design_body_font.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+    self.design_body_font.setMinimumContentsLength(12)
+    theme_layout.addRow("Body font", self.design_body_font)
 
-        gradient_group = QtWidgets.QGroupBox("Gradients", tab)
-        gradient_layout = QtWidgets.QFormLayout(gradient_group)
-        gradient_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    button_row = QtWidgets.QHBoxLayout()
+    self.btn_apply_theme = QtWidgets.QPushButton("Apply theme", theme_group)
+    self.btn_apply_theme.setMinimumHeight(40)
+    self.btn_add_helpers = QtWidgets.QPushButton("Add CSS helpers", theme_group)
+    self.btn_add_helpers.setMinimumHeight(40)
+    button_row.addWidget(self.btn_apply_theme)
+    button_row.addWidget(self.btn_add_helpers)
+    theme_layout.addRow(button_row)
 
-        self.gradient_from = QtWidgets.QLineEdit(gradient_group)
-        self.gradient_from.setPlaceholderText(DEFAULT_GRADIENT["from"])
-        self.gradient_from.setToolTip(
-            "Start color for the gradient background helper.")
-        gradient_layout.addRow("From", self.gradient_from)
+    main_layout.addWidget(theme_group)
 
-        self.gradient_to = QtWidgets.QLineEdit(gradient_group)
-        self.gradient_to.setPlaceholderText(DEFAULT_GRADIENT["to"])
-        self.gradient_to.setToolTip(
-            "End color for the gradient background helper.")
-        gradient_layout.addRow("To", self.gradient_to)
+    gradient_group = QtWidgets.QGroupBox("Gradients", self.design_root)
+    gradient_layout = QtWidgets.QFormLayout(gradient_group)
+    gradient_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    gradient_layout.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows)
 
-        self.gradient_angle_combo = QtWidgets.QComboBox(gradient_group)
-        self.gradient_angle_combo.addItems(GRADIENT_ANGLES)
-        self.gradient_angle_combo.setEditable(True)
-        self.gradient_angle_combo.setInsertPolicy(
-            QtWidgets.QComboBox.InsertPolicy.NoInsert)
-        self.gradient_angle_combo.setToolTip(
-            "Direction of the gradient (e.g., 135deg or to bottom).")
-        angle_row = QtWidgets.QHBoxLayout()
-        angle_widget = QtWidgets.QWidget(gradient_group)
-        angle_widget.setLayout(angle_row)
-        angle_row.setContentsMargins(0, 0, 0, 0)
-        angle_row.setSpacing(6)
-        angle_row.addWidget(self.gradient_angle_combo, 1)
-        self.gradient_preview = QtWidgets.QLabel(gradient_group)
-        self.gradient_preview.setFixedSize(60, 20)
-        self.gradient_preview.setFrameShape(QtWidgets.QFrame.Shape.Panel)
-        self.gradient_preview.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
-        angle_row.addWidget(self.gradient_preview)
-        gradient_layout.addRow("Angle", angle_widget)
+    self.gradient_from = QtWidgets.QLineEdit(gradient_group)
+    self.gradient_from.setPlaceholderText(DEFAULT_GRADIENT["from"])
+    self.gradient_from.setToolTip("Start color for the gradient background helper.")
+    gradient_layout.addRow("From", self.gradient_from)
 
-        gradient_buttons = QtWidgets.QHBoxLayout()
-        self.btn_apply_gradient = QtWidgets.QPushButton(
-            "Apply Gradient Helpers", gradient_group)
-        self.btn_apply_gradient.setToolTip(
-            "Updates the gradient utility classes in your CSS.")
-        self.btn_insert_gradient_hero = QtWidgets.QPushButton(
-            "Insert Gradient Hero Background", gradient_group)
-        self.btn_insert_gradient_hero.setToolTip(
-            "Insert a ready-made hero section that uses the gradient helpers.")
-        gradient_buttons.addWidget(self.btn_apply_gradient)
-        gradient_buttons.addWidget(self.btn_insert_gradient_hero)
-        gradient_layout.addRow(gradient_buttons)
+    self.gradient_to = QtWidgets.QLineEdit(gradient_group)
+    self.gradient_to.setPlaceholderText(DEFAULT_GRADIENT["to"])
+    self.gradient_to.setToolTip("End color for the gradient background helper.")
+    gradient_layout.addRow("To", self.gradient_to)
 
-        main_layout.addWidget(gradient_group)
+    self.gradient_angle_combo = QtWidgets.QComboBox(gradient_group)
+    self.gradient_angle_combo.addItems(GRADIENT_ANGLES)
+    self.gradient_angle_combo.setEditable(True)
+    self.gradient_angle_combo.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
+    self.gradient_angle_combo.setToolTip("Direction of the gradient (e.g., 135deg or to bottom).")
+    self.gradient_angle_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+    angle_row = QtWidgets.QHBoxLayout()
+    angle_widget = QtWidgets.QWidget(gradient_group)
+    angle_widget.setLayout(angle_row)
+    angle_row.setContentsMargins(0, 0, 0, 0)
+    angle_row.setSpacing(6)
+    angle_row.addWidget(self.gradient_angle_combo, 1)
+    self.btn_flip_gradient = QtWidgets.QPushButton("Flip", gradient_group)
+    self.btn_flip_gradient.setToolTip("Swap the gradient start and end colors.")
+    angle_row.addWidget(self.btn_flip_gradient)
+    gradient_layout.addRow("Angle", angle_widget)
 
-        background_group = QtWidgets.QGroupBox("Background", tab)
-        background_layout = QtWidgets.QVBoxLayout(background_group)
-        background_layout.setContentsMargins(8, 8, 8, 8)
-        background_layout.setSpacing(6)
+    gradient_buttons = QtWidgets.QHBoxLayout()
+    self.btn_apply_gradient = QtWidgets.QPushButton("Apply gradient helpers", gradient_group)
+    self.btn_insert_gradient_hero = QtWidgets.QPushButton("Insert gradient hero", gradient_group)
+    self.btn_insert_gradient_hero.setToolTip("Insert a ready-made hero section that uses the gradient helpers.")
+    gradient_buttons.addWidget(self.btn_apply_gradient)
+    gradient_buttons.addWidget(self.btn_insert_gradient_hero)
+    gradient_layout.addRow(gradient_buttons)
 
-        background_form = QtWidgets.QFormLayout()
-        background_form.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    main_layout.addWidget(gradient_group)
 
-        self.bg_scope_combo = QtWidgets.QComboBox(background_group)
-        self.bg_scope_combo.addItems(BACKGROUND_SCOPE_CHOICES)
-        background_form.addRow("Scope", self.bg_scope_combo)
+    background_group = QtWidgets.QGroupBox("Background", self.design_root)
+    form = QtWidgets.QFormLayout(background_group)
+    form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    form.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows)
+    form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
-        self.bg_kind_combo = QtWidgets.QComboBox(background_group)
-        self.bg_kind_combo.addItems(BACKGROUND_KIND_CHOICES)
-        background_form.addRow("Kind", self.bg_kind_combo)
+    self.bg_scope = QtWidgets.QComboBox(background_group)
+    self.bg_scope.addItems(["Entire site", "This page only", "Hero section"])
+    self.bg_scope.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+    self.bg_scope.setMinimumContentsLength(12)
 
-        self.bg_stack = QtWidgets.QStackedWidget(background_group)
-        background_form.addRow("Options", self.bg_stack)
+    self.bg_kind = QtWidgets.QComboBox(background_group)
+    self.bg_kind.addItems(["None", "Image", "Gradient", "Video"])
+    self.bg_kind.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+    self.bg_kind.setMinimumContentsLength(10)
 
-        # Solid background controls
-        solid_widget = QtWidgets.QWidget(self.bg_stack)
-        solid_layout = QtWidgets.QHBoxLayout(solid_widget)
-        solid_layout.setContentsMargins(0, 0, 0, 0)
-        solid_layout.setSpacing(6)
-        self.bg_solid_color = ColorButton("#0f172a", solid_widget)
-        solid_layout.addWidget(self.bg_solid_color)
-        solid_layout.addStretch(1)
-        self.bg_stack.addWidget(solid_widget)
+    self.bg_stack = QtWidgets.QStackedWidget(background_group)
 
-        # Gradient background controls
-        gradient_widget = QtWidgets.QWidget(self.bg_stack)
-        gradient_widget_form = QtWidgets.QFormLayout(gradient_widget)
-        gradient_widget_form.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        self.bg_gradient_from = ColorButton(
-    DEFAULT_GRADIENT["from"], gradient_widget)
-        self.bg_gradient_to = ColorButton(
-    DEFAULT_GRADIENT["to"], gradient_widget)
-        self.bg_gradient_angle = QtWidgets.QSpinBox(gradient_widget)
-        self.bg_gradient_angle.setRange(0, 360)
-        self.bg_gradient_angle.setSuffix("°")
-        self.bg_gradient_angle.setValue(
-            int(DEFAULT_GRADIENT.get("angle", "135deg").replace("deg", "")))
-        gradient_widget_form.addRow("From", self.bg_gradient_from)
-        gradient_widget_form.addRow("To", self.bg_gradient_to)
-        gradient_widget_form.addRow("Angle", self.bg_gradient_angle)
-        self.bg_stack.addWidget(gradient_widget)
+    w_none = QtWidgets.QWidget()
+    layout_none = QtWidgets.QVBoxLayout(w_none)
+    layout_none.setContentsMargins(0, 0, 0, 0)
+    layout_none.addWidget(QtWidgets.QLabel("No background applied."))
+    layout_none.addStretch(1)
+    self.bg_stack.addWidget(w_none)
 
-        # Image background controls
-        image_widget = QtWidgets.QWidget(self.bg_stack)
-        image_form = QtWidgets.QFormLayout(image_widget)
-        image_form.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        image_path_row = QtWidgets.QHBoxLayout()
-        image_path_row.setContentsMargins(0, 0, 0, 0)
-        image_path_row.setSpacing(6)
-        self.bg_image_path = QtWidgets.QLineEdit(image_widget)
-        self.bg_image_browse = QtWidgets.QPushButton("Browse…", image_widget)
-        image_path_row.addWidget(self.bg_image_path)
-        image_path_row.addWidget(self.bg_image_browse)
-        image_path_widget = QtWidgets.QWidget(image_widget)
-        image_path_widget.setLayout(image_path_row)
-        image_form.addRow("Image", image_path_widget)
-        self.bg_image_position_combo = QtWidgets.QComboBox(image_widget)
-        self.bg_image_position_combo.addItems(
-            ["center", "top", "bottom", "left", "right"])
-        image_form.addRow("Position", self.bg_image_position_combo)
-        self.bg_image_size_combo = QtWidgets.QComboBox(image_widget)
-        self.bg_image_size_combo.addItems(["cover", "contain", "auto"])
-        image_form.addRow("Size", self.bg_image_size_combo)
-        self.bg_image_fixed = QtWidgets.QCheckBox(
-            "Fixed (parallax)", image_widget)
-        image_form.addRow("Scrolling", self.bg_image_fixed)
-        self.bg_stack.addWidget(image_widget)
+    w_img = QtWidgets.QWidget()
+    img_form = QtWidgets.QFormLayout(w_img)
+    img_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    img_path_row = QtWidgets.QHBoxLayout()
+    img_path_row.setContentsMargins(0, 0, 0, 0)
+    img_path_row.setSpacing(6)
+    self.bg_img_path = QtWidgets.QLineEdit(w_img)
+    self.bg_img_browse = QtWidgets.QPushButton("Browse…", w_img)
+    img_path_row.addWidget(self.bg_img_path, 1)
+    img_path_row.addWidget(self.bg_img_browse)
+    img_path_wrap = QtWidgets.QWidget(w_img)
+    img_path_wrap.setLayout(img_path_row)
+    img_form.addRow("File", img_path_wrap)
+    self.bg_img_size = QtWidgets.QComboBox(w_img)
+    self.bg_img_size.addItems(["cover", "contain", "auto"])
+    self.bg_img_pos = QtWidgets.QComboBox(w_img)
+    self.bg_img_pos.addItems(["center center", "top center", "bottom center", "left top", "right bottom"])
+    self.bg_img_repeat = QtWidgets.QComboBox(w_img)
+    self.bg_img_repeat.addItems(["no-repeat", "repeat", "repeat-x", "repeat-y"])
+    self.bg_img_attach = QtWidgets.QComboBox(w_img)
+    self.bg_img_attach.addItems(["scroll", "fixed"])
+    for combo in (self.bg_img_size, self.bg_img_pos, self.bg_img_repeat, self.bg_img_attach):
+        combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+        combo.setMinimumContentsLength(10)
+    img_form.addRow("Size", self.bg_img_size)
+    img_form.addRow("Position", self.bg_img_pos)
+    img_form.addRow("Repeat", self.bg_img_repeat)
+    img_form.addRow("Attachment", self.bg_img_attach)
+    self.bg_stack.addWidget(w_img)
 
-        # Pattern background controls
-        pattern_widget = QtWidgets.QWidget(self.bg_stack)
-        pattern_layout = QtWidgets.QVBoxLayout(pattern_widget)
-        pattern_layout.setContentsMargins(0, 0, 0, 0)
-        pattern_layout.setSpacing(6)
-        self.bg_pattern_combo = QtWidgets.QComboBox(pattern_widget)
-        self.bg_pattern_combo.addItems(list(BACKGROUND_PATTERN_PRESETS.keys()))
-        pattern_layout.addWidget(self.bg_pattern_combo)
-        self.bg_pattern_preview = QtWidgets.QLabel("Pattern preview")
-        self.bg_pattern_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.bg_pattern_preview.setMinimumHeight(120)
-        self.bg_pattern_preview.setStyleSheet(
-            "border:1px solid rgba(148,163,184,0.6); border-radius:4px;")
-        pattern_layout.addWidget(self.bg_pattern_preview)
-        self.bg_stack.addWidget(pattern_widget)
+    w_grad = QtWidgets.QWidget()
+    grad_form = QtWidgets.QFormLayout(w_grad)
+    grad_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    self.bg_grad_c1 = QtWidgets.QLineEdit("#3b82f6", w_grad)
+    self.bg_grad_c2 = QtWidgets.QLineEdit("#a855f7", w_grad)
+    self.bg_grad_angle = QtWidgets.QComboBox(w_grad)
+    self.bg_grad_angle.addItems(["0deg", "45deg", "90deg", "135deg", "180deg"])
+    self.bg_grad_angle.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+    grad_form.addRow("From", self.bg_grad_c1)
+    grad_form.addRow("To", self.bg_grad_c2)
+    grad_form.addRow("Angle", self.bg_grad_angle)
+    self.bg_stack.addWidget(w_grad)
 
-        background_layout.addLayout(background_form)
+    w_vid = QtWidgets.QWidget()
+    vid_form = QtWidgets.QFormLayout(w_vid)
+    vid_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    vid_row = QtWidgets.QHBoxLayout()
+    vid_row.setContentsMargins(0, 0, 0, 0)
+    vid_row.setSpacing(6)
+    self.bg_vid_path = QtWidgets.QLineEdit(w_vid)
+    self.bg_vid_browse = QtWidgets.QPushButton("Browse…", w_vid)
+    vid_row.addWidget(self.bg_vid_path, 1)
+    vid_row.addWidget(self.bg_vid_browse)
+    vid_wrap = QtWidgets.QWidget(w_vid)
+    vid_wrap.setLayout(vid_row)
+    vid_form.addRow("MP4 file", vid_wrap)
+    self.bg_stack.addWidget(w_vid)
 
-        self.bg_insert_markup = QtWidgets.QCheckBox(
-    "Also insert minimal markup", background_group)
-        background_layout.addWidget(self.bg_insert_markup)
+    self.bg_kind.currentIndexChanged.connect(self.bg_stack.setCurrentIndex)
 
-        background_buttons = QtWidgets.QHBoxLayout()
-        background_buttons.setContentsMargins(0, 0, 0, 0)
-        background_buttons.setSpacing(6)
-        self.bg_apply_button = QtWidgets.QPushButton("Apply", background_group)
-        self.bg_reset_button = QtWidgets.QPushButton("Reset", background_group)
-        background_buttons.addWidget(self.bg_apply_button)
-        background_buttons.addWidget(self.bg_reset_button)
-        background_buttons.addStretch(1)
-        background_layout.addLayout(background_buttons)
+    btns = QtWidgets.QHBoxLayout()
+    self.bg_apply = QtWidgets.QPushButton("Apply", background_group)
+    self.bg_reset = QtWidgets.QPushButton("Reset", background_group)
+    btns.addStretch(1)
+    btns.addWidget(self.bg_apply)
+    btns.addWidget(self.bg_reset)
 
-        main_layout.addWidget(background_group)
-        self._update_background_pattern_preview()
+    form.addRow("Scope", self.bg_scope)
+    form.addRow("Kind", self.bg_kind)
+    form.addRow("Options", self.bg_stack)
+    form.addRow("", QtWidgets.QWidget())
+    form.addRow("", self._wrap(btns))
 
-        shape_group = QtWidgets.QGroupBox("Corners & Depth", tab)
-        shape_layout = QtWidgets.QFormLayout(shape_group)
-        shape_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    main_layout.addWidget(background_group)
 
-        self.radius_spin = QtWidgets.QDoubleSpinBox(shape_group)
-        self.radius_spin.setRange(0.5, 2.0)
-        self.radius_spin.setSingleStep(0.05)
-        self.radius_spin.setToolTip(
-            "Makes corners more round across cards and buttons.")
-        shape_layout.addRow("Radius scale", self.radius_spin)
+    shape_group = QtWidgets.QGroupBox("Corners & Depth", self.design_root)
+    shape_layout = QtWidgets.QFormLayout(shape_group)
+    shape_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.shadow_combo = QtWidgets.QComboBox(shape_group)
-        self.shadow_combo.addItems(SHADOW_LEVELS)
-        self.shadow_combo.setToolTip(
-            "Adds soft shadow depth to the .shadow utility.")
-        shape_layout.addRow("Shadow level", self.shadow_combo)
+    self.radius_spin = QtWidgets.QDoubleSpinBox(shape_group)
+    self.radius_spin.setRange(0.5, 2.0)
+    self.radius_spin.setSingleStep(0.05)
+    self.radius_spin.setToolTip("Makes corners more round across cards and buttons.")
+    shape_layout.addRow("Radius scale", self.radius_spin)
 
-        main_layout.addWidget(shape_group)
+    self.shadow_combo = QtWidgets.QComboBox(shape_group)
+    self.shadow_combo.addItems(SHADOW_LEVELS)
+    self.shadow_combo.setToolTip("Adds soft shadow depth to the .shadow utility.")
+    shape_layout.addRow("Shadow level", self.shadow_combo)
 
-        motion_group = QtWidgets.QGroupBox("Motion", tab)
-        motion_layout = QtWidgets.QFormLayout(motion_group)
-        motion_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    main_layout.addWidget(shape_group)
 
-        self.motion_enable_scroll = QtWidgets.QCheckBox(
-    "Enable appear-on-scroll (adds small JS)", motion_group)
-        self.motion_enable_scroll.setToolTip(
-            "Reveals elements as they enter the viewport.")
-        motion_layout.addRow(self.motion_enable_scroll)
+    motion_group = QtWidgets.QGroupBox("Motion", self.design_root)
+    motion_layout = QtWidgets.QFormLayout(motion_group)
+    motion_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.motion_pref_combo = QtWidgets.QComboBox(motion_group)
-        self.motion_pref_combo.addItems(
-            ["Respect visitor setting", "Force on", "Force off"])
-        self.motion_pref_combo.setToolTip(
-            "Choose how to handle reduced-motion preferences.")
-        motion_layout.addRow("Reduced motion", self.motion_pref_combo)
+    self.motion_enable_scroll = QtWidgets.QCheckBox("Enable appear-on-scroll (adds small JS)", motion_group)
+    self.motion_enable_scroll.setToolTip("Reveals elements as they enter the viewport.")
+    motion_layout.addRow(self.motion_enable_scroll)
 
-        self.motion_effect_combo = QtWidgets.QComboBox(motion_group)
-        self.motion_effect_combo.addItems(MOTION_EFFECTS)
-        self.motion_effect_combo.setToolTip(
-            "Default animation applied when wrapping content.")
-        motion_layout.addRow("Default effect", self.motion_effect_combo)
+    self.motion_pref_combo = QtWidgets.QComboBox(motion_group)
+    self.motion_pref_combo.addItems(["Respect visitor setting", "Force on", "Force off"])
+    self.motion_pref_combo.setToolTip("Choose how to handle reduced-motion preferences.")
+    motion_layout.addRow("Reduced motion", self.motion_pref_combo)
 
-        self.motion_easing_combo = QtWidgets.QComboBox(motion_group)
-        self.motion_easing_combo.addItems(list(MOTION_EASINGS.keys()))
-        self.motion_easing_combo.setToolTip(
-            "Easing curve for wrapped animations.")
-        motion_layout.addRow("Easing", self.motion_easing_combo)
+    self.motion_effect_combo = QtWidgets.QComboBox(motion_group)
+    self.motion_effect_combo.addItems(MOTION_EFFECTS)
+    self.motion_effect_combo.setToolTip("Default animation applied when wrapping content.")
+    motion_layout.addRow("Default effect", self.motion_effect_combo)
 
-        duration_row = QtWidgets.QHBoxLayout()
-        duration_widget = QtWidgets.QWidget(motion_group)
-        duration_widget.setLayout(duration_row)
-        duration_row.setContentsMargins(0, 0, 0, 0)
-        duration_row.setSpacing(6)
-        self.motion_duration_spin = QtWidgets.QSpinBox(motion_group)
-        self.motion_duration_spin.setRange(100, 5000)
-        self.motion_duration_spin.setSingleStep(50)
-        self.motion_duration_spin.setSuffix(" ms")
-        self.motion_duration_spin.setToolTip("How long the animation plays.")
-        duration_row.addWidget(self.motion_duration_spin)
-        self.motion_delay_spin = QtWidgets.QSpinBox(motion_group)
-        self.motion_delay_spin.setRange(0, 3000)
-        self.motion_delay_spin.setSingleStep(50)
-        self.motion_delay_spin.setSuffix(" ms")
-        self.motion_delay_spin.setToolTip("Delay before the animation starts.")
-        duration_row.addWidget(self.motion_delay_spin)
-        motion_layout.addRow("Duration & delay", duration_widget)
+    self.motion_easing_combo = QtWidgets.QComboBox(motion_group)
+    self.motion_easing_combo.addItems(list(MOTION_EASINGS.keys()))
+    self.motion_easing_combo.setToolTip("Easing curve for wrapped animations.")
+    motion_layout.addRow("Easing", self.motion_easing_combo)
 
-        self.btn_wrap_motion_default = QtWidgets.QPushButton(
-            "Wrap Selection with Animation", motion_group)
-        self.btn_wrap_motion_default.setToolTip(
-            "Wraps the selected HTML with your default animation settings.")
-        motion_layout.addRow(self.btn_wrap_motion_default)
+    duration_row = QtWidgets.QHBoxLayout()
+    duration_widget = QtWidgets.QWidget(motion_group)
+    duration_widget.setLayout(duration_row)
+    duration_row.setContentsMargins(0, 0, 0, 0)
+    duration_row.setSpacing(6)
+    self.motion_duration_spin = QtWidgets.QSpinBox(motion_group)
+    self.motion_duration_spin.setRange(100, 5000)
+    self.motion_duration_spin.setSingleStep(50)
+    self.motion_duration_spin.setSuffix(" ms")
+    self.motion_duration_spin.setToolTip("How long the animation plays.")
+    duration_row.addWidget(self.motion_duration_spin)
+    self.motion_delay_spin = QtWidgets.QSpinBox(motion_group)
+    self.motion_delay_spin.setRange(0, 3000)
+    self.motion_delay_spin.setSingleStep(50)
+    self.motion_delay_spin.setSuffix(" ms")
+    self.motion_delay_spin.setToolTip("Delay before the animation starts.")
+    duration_row.addWidget(self.motion_delay_spin)
+    motion_layout.addRow("Duration & delay", duration_widget)
 
-        main_layout.addWidget(motion_group)
+    self.btn_wrap_motion_default = QtWidgets.QPushButton("Wrap Selection with Animation", motion_group)
+    self.btn_wrap_motion_default.setToolTip("Wraps the selected HTML with your default animation settings.")
+    motion_layout.addRow(self.btn_wrap_motion_default)
 
-        note = QtWidgets.QLabel(
-            "Design changes update your CSS instantly. Helpers stay tidy thanks to sentinel markers."
-        )
-        note.setWordWrap(True)
-        main_layout.addWidget(note)
-        main_layout.addStretch(1)
-        return tab
+    main_layout.addWidget(motion_group)
+
+    note = QtWidgets.QLabel("Design changes update your CSS instantly. Helpers stay tidy thanks to sentinel markers.")
+    note.setWordWrap(True)
+    main_layout.addWidget(note)
+    main_layout.addStretch(1)
+
+    scroll.setWidget(self.design_root)
+    return scroll
+
 
     def _build_external_tab(self) -> QtWidgets.QWidget:
         tab = QtWidgets.QWidget(self)
@@ -7099,12 +7084,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_add_helpers.clicked.connect(self.add_css_helpers)
         self.btn_apply_gradient.clicked.connect(self.apply_gradient_helpers)
         self.btn_insert_gradient_hero.clicked.connect(self.insert_gradient_hero)
-        self.bg_kind_combo.currentIndexChanged.connect(self._on_background_kind_changed)
-        self.bg_scope_combo.currentIndexChanged.connect(self._on_background_scope_changed)
-        self.bg_pattern_combo.currentTextChanged.connect(self._update_background_pattern_preview)
-        self.bg_image_browse.clicked.connect(self._browse_background_image)
-        self.bg_apply_button.clicked.connect(self._apply_background_from_ui)
-        self.bg_reset_button.clicked.connect(self._reset_background_from_ui)
+        self.bg_apply.clicked.connect(self._apply_background_css)
+        self.bg_reset.clicked.connect(self._reset_background_css)
+        self.bg_img_browse.clicked.connect(lambda: self._pick_to_line_edit(self.bg_img_path, "Images (*.png *.jpg *.jpeg *.gif *.webp)"))
+        self.bg_vid_browse.clicked.connect(lambda: self._pick_to_line_edit(self.bg_vid_path, "Videos (*.mp4 *.webm)"))
+        self.design_theme_combo.currentTextChanged.connect(self._apply_theme_preset)
         self.btn_add_asset.clicked.connect(self._browse_assets)
         self.btn_rename_asset.clicked.connect(self._rename_asset)
         self.btn_remove_asset.clicked.connect(self._remove_asset)
@@ -7161,8 +7145,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.css_editor.blockSignals(True)
         self.css_editor.setPlainText(self.project.css)
         self.css_editor.blockSignals(False)
-        if self.project.backgrounds and BACKGROUND_BLOCK_START not in self.project.css:
-            self._sync_background_css()
         if self.project.pages:
             self.pages_list.setCurrentRow(0)
         self.design_primary.setText(self.project.palette.get("primary", "#2563eb"))
@@ -7170,9 +7152,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.design_text.setText(self.project.palette.get("text", "#0f172a"))
         self.design_heading_font.setCurrentText(self.project.fonts.get("heading", FONT_STACKS[0]))
         self.design_body_font.setCurrentText(self.project.fonts.get("body", FONT_STACKS[0]))
+        self.design_theme_combo.blockSignals(True)
         self.design_theme_combo.setCurrentText(
             self.project.theme_preset if self.project.theme_preset in THEME_PRESETS else "Custom"
         )
+        self.design_theme_combo.blockSignals(False)
         gradient = self.project.gradients or DEFAULT_GRADIENT
         self.gradient_from.blockSignals(True)
         self.gradient_to.blockSignals(True)
@@ -7245,14 +7229,33 @@ class MainWindow(QtWidgets.QMainWindow):
         template_key = selection.template_key
         site_name = selection.project_name
         spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
-        palette = dict(spec.palette or DEFAULT_PALETTE)
-        palette.update(selection.palette)
-        fonts = dict(spec.fonts or DEFAULT_FONTS)
-        fonts.update(selection.fonts)
+        theme_name = selection.theme if selection.theme in THEME_PRESETS else next(iter(THEME_PRESETS))
+        palette = dict(THEME_PRESETS.get(theme_name, DEFAULT_PALETTE))
+        fonts = dict(DEFAULT_FONTS)
+        if isinstance(selection.fonts, dict):
+            for key, value in selection.fonts.items():
+                if value:
+                    fonts[key] = value
+        style_fonts = THEME_STYLE_PRESETS.get(theme_name, {}).get("fonts")
+        if isinstance(style_fonts, dict):
+            for key, value in style_fonts.items():
+                if key not in fonts or not fonts[key]:
+                    fonts[key] = str(value)
+        gradients = dict(DEFAULT_GRADIENT)
+        style_gradients = THEME_STYLE_PRESETS.get(theme_name, {}).get("gradients")
+        if isinstance(style_gradients, dict):
+            gradients.update({
+                "from": str(style_gradients.get("from", gradients["from"])),
+                "to": str(style_gradients.get("to", gradients["to"])),
+                "angle": str(style_gradients.get("angle", gradients["angle"])),
+            })
         css = generate_base_css(palette, fonts)
+        css = _set_or_replace_block(css, BACKGROUND_SENTINEL, "body { background: var(--color-surface); }")
         if spec.include_helpers:
             css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
         css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
+        css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(gradients))
+        css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block())
         if spec.extra_css.strip():
             css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
         pages = [
@@ -7265,10 +7268,11 @@ class MainWindow(QtWidgets.QMainWindow):
             css=css,
             palette=palette,
             fonts=fonts,
+            gradients=gradients,
+            theme_preset=theme_name,
             template_key=template_key,
             images=placeholder_images(),
         )
-        project.theme_preset = selection.theme if selection.theme in THEME_PRESETS else "Custom"
         self.project = project
         self.project_path = None
         self.update_window_title()
@@ -7450,280 +7454,76 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_preview()
         self.status_bar.showMessage(f"Added {class_name} wrapper", 2000)
 
-    def _background_scope_value(self) -> str:
-        if getattr(self, "bg_scope_combo", None) is None:
-            return "site"
-        return "site" if self.bg_scope_combo.currentIndex() == 0 else "page"
 
-    def _background_kind_value(self) -> str:
-        if getattr(self, "bg_kind_combo", None) is None:
-            return "solid"
-        index = self.bg_kind_combo.currentIndex()
-        if 0 <= index < len(BACKGROUND_KIND_CHOICES):
-            return BACKGROUND_KIND_CHOICES[index].lower()
-        return "solid"
 
-    def _current_page(self) -> Optional[Page]:
-        if not self.project or not self.project.pages:
-            return None
-        index = self.pages_list.currentRow()
-        if index < 0 or index >= len(self.project.pages):
-            return None
-        return self.project.pages[index]
+    def _wrap(self, layout: QtWidgets.QLayout) -> QtWidgets.QWidget:
+        widget = QtWidgets.QWidget()
+        widget.setLayout(layout)
+        return widget
 
-    def _background_spec_for_scope(self, scope: str, page_filename: Optional[str]) -> Optional[BackgroundSpec]:
-        for spec in self.project.backgrounds:
-            if spec.scope != scope:
-                continue
-            if scope == "site":
-                return spec
-            if page_filename and spec.value.get("page") == page_filename:
-                return spec
-        return None
-
-    def _store_background_spec(self, spec: BackgroundSpec, page_filename: Optional[str]) -> None:
-        updated: List[BackgroundSpec] = []
-        for existing in self.project.backgrounds:
-            if existing.scope != spec.scope:
-                updated.append(existing)
-                continue
-            if spec.scope == "page" and existing.value.get("page") != page_filename:
-                updated.append(existing)
-        updated.append(spec)
-        self.project.backgrounds = updated
-
-    def _remove_background_spec(self, scope: str, page_filename: Optional[str]) -> bool:
-        removed = False
-        remaining: List[BackgroundSpec] = []
-        for spec in self.project.backgrounds:
-            if spec.scope != scope:
-                remaining.append(spec)
-                continue
-            if scope == "site":
-                removed = True
-                continue
-            if spec.value.get("page") == page_filename:
-                removed = True
-            else:
-                remaining.append(spec)
-        if removed:
-            self.project.backgrounds = remaining
-        return removed
-
-    def _strip_background_blocks(self, css: str) -> str:
-        pattern = re.compile(
-            re.escape(BACKGROUND_BLOCK_START) + r".*?" + re.escape(BACKGROUND_BLOCK_END), re.S
-        )
-        cleaned = re.sub(pattern, "", css)
-        return cleaned.strip()
-
-    def _sync_background_css(self) -> None:
-        css = self.css_editor.toPlainText()
-        css = self._strip_background_blocks(css)
-        blocks = [self._build_background_block(spec) for spec in self.project.backgrounds]
-        blocks = [block for block in blocks if block]
-        if blocks:
-            combined = f"{BACKGROUND_BLOCK_START}\n" + "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
-            css = (css + "\n\n" + combined).strip() if css else combined
-        self.css_editor.blockSignals(True)
-        self.css_editor.setPlainText(css)
-        self.css_editor.blockSignals(False)
-        self.project.css = css
-
-    def _build_background_block(self, spec: BackgroundSpec) -> Optional[str]:
-        scope = spec.scope
-        kind = spec.kind
-        value = spec.value
-        if scope == "site":
-            if kind == "solid":
-                color = value.get("color", "#0f0f0f")
-                return f"{BACKGROUND_COMMENT_PREFIX} (site/solid) */\nbody {{ background: {color}; }}"
-            if kind == "gradient":
-                color_from = value.get("from", "#0ea5e9")
-                color_to = value.get("to", "#a855f7")
-                angle = value.get("angle", "135deg")
-                return (
-                    f"{BACKGROUND_COMMENT_PREFIX} (site/gradient) */\n"
-                    "body::before {\n  content:\"\"; position:fixed; inset:0; z-index:-1;\n"
-                    f"  background: linear-gradient({angle}, {color_from}, {color_to});\n}}"
-                )
-            if kind == "image":
-                filename = value.get("file")
-                if not filename:
-                    return None
-                position = value.get("position", "center")
-                size = value.get("size", "cover")
-                repeat = "no-repeat"
-                fixed_line = "\nbody { background-attachment: fixed; }" if value.get("fixed") == "1" else ""
-                return (
-                    f"{BACKGROUND_COMMENT_PREFIX} (site/image) */\n"
-                    f"body {{ background-image: url('assets/images/{filename}'); }}\n"
-                    f"body {{ background-position:{position}; background-size:{size}; background-repeat:{repeat}; }}"
-                    f"{fixed_line}"
-                )
-            if kind == "pattern":
-                svg = value.get("svg", "")
-                if not svg:
-                    return None
-                encoded = urllib.parse.quote(svg, safe="")
-                return (
-                    f"{BACKGROUND_COMMENT_PREFIX} (site/pattern) */\n"
-                    "body::before {\n  content:\"\"; position:fixed; inset:0; z-index:-1;\n"
-                    f"  background-image: url('data:image/svg+xml,{encoded}');\n  background-repeat: repeat;\n  opacity: 0.65;\n}}"
-                )
-            return None
-
-        class_name = value.get("class") or f"page-bg-{slugify(value.get('page', 'section'))}"
-        if kind == "solid":
-            color = value.get("color", "#0f172a")
-            return f"{BACKGROUND_COMMENT_PREFIX} (page/solid) */\n.{class_name} {{ background: {color}; }}"
-        if kind == "gradient":
-            color_from = value.get("from", "#0ea5e9")
-            color_to = value.get("to", "#a855f7")
-            angle = value.get("angle", "135deg")
-            return (
-                f"{BACKGROUND_COMMENT_PREFIX} (page/gradient) */\n"
-                f".{class_name} {{ background: linear-gradient({angle}, {color_from}, {color_to}); color:#fff; }}"
-            )
-        if kind == "image":
-            filename = value.get("file")
-            if not filename:
-                return None
-            position = value.get("position", "center")
-            size = value.get("size", "cover")
-            repeat = "no-repeat"
-            lines = [
-                f"{BACKGROUND_COMMENT_PREFIX} (page/image) */",
-                f".{class_name} {{ background-image: url('assets/images/{filename}'); }}",
-                f".{class_name} {{ background-position:{position}; background-size:{size}; background-repeat:{repeat}; }}",
-            ]
-            if value.get("fixed") == "1":
-                lines.append(f".{class_name}.bg-fixed {{ background-attachment: fixed; }}")
-            return "\n".join(lines)
-        if kind == "pattern":
-            svg = value.get("svg", "")
-            if not svg:
-                return None
-            encoded = urllib.parse.quote(svg, safe="")
-            return (
-                f"{BACKGROUND_COMMENT_PREFIX} (page/pattern) */\n"
-                f".{class_name} {{ background-image: url('data:image/svg+xml,{encoded}'); background-repeat: repeat; }}"
-            )
-        return None
-
-    def _apply_background_from_ui(self) -> None:
+    def _apply_background_css(self) -> None:
         if not self.project:
             return
-        scope = self._background_scope_value()
-        page = self._current_page()
-        page_filename = page.filename if page else None
-        if scope == "page" and not page_filename:
-            QtWidgets.QMessageBox.information(self, "Select a page", "Choose a page before applying a page background.")
-            return
-        kind = self._background_kind_value()
-        value: Dict[str, str] = {}
-        if kind == "solid":
-            value["color"] = self.bg_solid_color.color()
-        elif kind == "gradient":
-            value["from"] = self.bg_gradient_from.color()
-            value["to"] = self.bg_gradient_to.color()
-            value["angle"] = f"{self.bg_gradient_angle.value()}deg"
-        elif kind == "image":
-            path_str = self.bg_image_path.text().strip()
-            if not path_str:
-                QtWidgets.QMessageBox.warning(self, "Choose an image", "Select an image to use as the background.")
+        kind = self.bg_kind.currentText()
+        scope = self.bg_scope.currentText()
+        selector = "body"
+        prefix = ""
+        if scope == "Hero section":
+            selector = ".hero"
+        elif scope == "This page only":
+            page = self._current_page()
+            if page:
+                prefix = f"/* Scope: {page.filename} */
+"
+        if kind == "Image":
+            path_value = self.bg_img_path.text().strip()
+            if not path_value:
+                QtWidgets.QMessageBox.warning(self, "Select image", "Choose an image to use as the background.")
                 return
-            path = Path(path_str)
-            asset_name = self._ensure_background_image_asset(path)
+            asset_name = self._ensure_background_image_asset(Path(path_value))
             if not asset_name:
                 return
-            value["file"] = asset_name
-            value["position"] = self.bg_image_position_combo.currentText()
-            value["size"] = self.bg_image_size_combo.currentText()
-            value["fixed"] = "1" if self.bg_image_fixed.isChecked() else "0"
-        elif kind == "pattern":
-            pattern_name = self.bg_pattern_combo.currentText()
-            svg = BACKGROUND_PATTERN_PRESETS.get(pattern_name, "")
-            if not svg:
-                QtWidgets.QMessageBox.warning(self, "Pattern unavailable", "Choose a different pattern preset.")
-                return
-            value["pattern"] = pattern_name
-            value["svg"] = svg
+            size = self.bg_img_size.currentText()
+            pos = self.bg_img_pos.currentText()
+            repeat = self.bg_img_repeat.currentText()
+            attach = self.bg_img_attach.currentText()
+            rule = (
+                f"{prefix}{selector} {{ background-image: url('assets/images/{asset_name}'); "
+                f"background-size: {size}; background-position: {pos}; "
+                f"background-repeat: {repeat}; background-attachment: {attach}; }}"
+            )
+        elif kind == "Gradient":
+            color_a = self.bg_grad_c1.text().strip() or "#3b82f6"
+            color_b = self.bg_grad_c2.text().strip() or "#a855f7"
+            angle = self.bg_grad_angle.currentText() or "135deg"
+            rule = f"{prefix}{selector} {{ background: linear-gradient({angle}, {color_a}, {color_b}); }}"
+        elif kind == "Video":
+            rule = "/* Add a full-bleed <video> element to your hero for video backgrounds. */"
         else:
-            return
-        if scope == "page" and page_filename:
-            value["page"] = page_filename
-            slug = slugify(Path(page_filename).stem)
-            value.setdefault("class", f"page-bg-{slug}")
-        spec = BackgroundSpec(scope=scope, kind=kind, value=value)
-        self._store_background_spec(spec, page_filename)
-        self._sync_background_css()
-        self.set_dirty(True)
-        if scope == "page" and page_filename:
-            if self.bg_insert_markup.isChecked():
-                self._insert_background_markup(spec)
-            else:
-                self._ensure_background_comment(spec)
-        self._load_background_controls()
+            rule = f"{selector} {{ background: var(--color-surface); }}"
+        css = self.css_editor.toPlainText()
+        css = _set_or_replace_block(css, BACKGROUND_SENTINEL, rule)
+        self.css_editor.setPlainText(css)
+        self.project.css = css
         self.update_preview()
+        self.set_dirty(True)
         self.status_bar.showMessage("Background updated", 2500)
 
-    def _reset_background_from_ui(self) -> None:
-        scope = self._background_scope_value()
-        page = self._current_page()
-        page_filename = page.filename if page else None
-        if scope == "page" and not page_filename:
-            QtWidgets.QMessageBox.information(self, "Select a page", "Choose a page to reset its background.")
+    def _reset_background_css(self) -> None:
+        if not self.project:
             return
-        if not self._remove_background_spec(scope, page_filename):
-            QtWidgets.QMessageBox.information(self, "Nothing to reset", "No background was set for this scope.")
-            return
-        self._sync_background_css()
-        self.set_dirty(True)
-        self._load_background_controls()
+        css = self.css_editor.toPlainText()
+        css = _set_or_replace_block(css, BACKGROUND_SENTINEL, "body { background: var(--color-surface); }")
+        self.css_editor.setPlainText(css)
+        self.project.css = css
         self.update_preview()
-        self.status_bar.showMessage("Background removed", 2000)
+        self.set_dirty(True)
+        self.status_bar.showMessage("Background reset", 2000)
 
-    def _on_background_kind_changed(self, index: int) -> None:
-        if getattr(self, "bg_stack", None) is None:
-            return
-        self.bg_stack.setCurrentIndex(index)
-        if getattr(self, "bg_pattern_combo", None) is not None and index == BACKGROUND_KIND_CHOICES.index("Pattern"):
-            self._update_background_pattern_preview()
-
-    def _on_background_scope_changed(self, index: int) -> None:  # noqa: ARG002
-        self._load_background_controls()
-
-    def _update_background_pattern_preview(self) -> None:
-        if getattr(self, "bg_pattern_preview", None) is None:
-            return
-        pattern_name = self.bg_pattern_combo.currentText() if self.bg_pattern_combo is not None else ""
-        svg = BACKGROUND_PATTERN_PRESETS.get(pattern_name, "")
-        if not svg:
-            self.bg_pattern_preview.setText("Pattern preview")
-            self.bg_pattern_preview.setStyleSheet(
-                "border:1px solid rgba(148,163,184,0.6); border-radius:4px;"
-            )
-            return
-        encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
-        self.bg_pattern_preview.setText("")
-        self.bg_pattern_preview.setStyleSheet(
-            "border:1px solid rgba(148,163,184,0.6); border-radius:4px;"
-            f" background-image:url(data:image/svg+xml;base64,{encoded});"
-        )
-
-    def _browse_background_image(self) -> None:
-        start_dir = self.settings.get("last_background_dir", str(Path.home()))
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "Choose background image",
-            start_dir,
-            "Images (*.png *.jpg *.jpeg *.gif *.svg *.webp)",
-        )
+    def _pick_to_line_edit(self, line: QtWidgets.QLineEdit, filter: str = "All files (*.*)") -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose file", "", filter)
         if path:
-            self.settings.set("last_background_dir", str(Path(path).parent))
-            if getattr(self, "bg_image_path", None) is not None:
-                self.bg_image_path.setText(path)
+            line.setText(path)
 
     def _ensure_background_image_asset(self, path: Path) -> Optional[str]:
         if not path.exists():
@@ -7741,95 +7541,40 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_bar.showMessage(f"Added background image {asset.name}", 2000)
         return asset.name
 
-    def _insert_background_markup(self, spec: BackgroundSpec) -> None:
-        class_name = spec.value.get("class")
-        if not class_name:
-            return
-        snippet = (
-            f"\n<section class=\"bg-cover {class_name}\">\n"
-            "  <div class=\"glass tile\">\n"
-            "    <h2>Headline on image</h2>\n"
-            "    <p class=\"muted\">Your message goes here.</p>\n"
-            "    <a class=\"btn neon-btn\" href=\"#\">Explore</a>\n"
-            "  </div>\n"
-            "</section>\n"
-        )
-        cursor = self.html_editor.textCursor()
-        cursor.insertText(snippet)
-
-    def _ensure_background_comment(self, spec: BackgroundSpec) -> None:
-        class_name = spec.value.get("class")
-        if not class_name:
-            return
-        comment = f"<!-- Add class \"{class_name}\" to a section to use this background -->"
-        html = self.html_editor.toPlainText()
-        if comment in html:
-            return
-        cursor = self.html_editor.textCursor()
-        cursor.movePosition(QtGui.QTextCursor.MoveOperation.Start)
-        cursor.insertText(comment + "\n")
-
     def _load_background_controls(self) -> None:
-        if getattr(self, "bg_kind_combo", None) is None:
+        if getattr(self, "bg_kind", None) is None:
             return
-        scope = self._background_scope_value()
-        page = self._current_page()
-        page_filename = page.filename if page else None
-        spec = self._background_spec_for_scope(scope, page_filename)
-        kind_index = 0
-        if spec:
-            for idx, label in enumerate(BACKGROUND_KIND_CHOICES):
-                if label.lower() == spec.kind:
-                    kind_index = idx
-                    break
-        self.bg_kind_combo.blockSignals(True)
-        self.bg_kind_combo.setCurrentIndex(kind_index)
-        self.bg_kind_combo.blockSignals(False)
-        self.bg_stack.setCurrentIndex(kind_index)
-
-        if spec and spec.kind == "solid":
-            self.bg_solid_color.setColor(spec.value.get("color", self.project.palette.get("surface", "#0f172a")))
+        css = self.css_editor.toPlainText()
+        block = extract_css_block(css, BACKGROUND_SENTINEL) or ""
+        self.bg_scope.setCurrentIndex(0)
+        self.bg_grad_c1.setText("#3b82f6")
+        self.bg_grad_c2.setText("#a855f7")
+        self.bg_grad_angle.setCurrentText("135deg")
+        self.bg_img_path.clear()
+        self.bg_img_size.setCurrentText("cover")
+        self.bg_img_pos.setCurrentText("center center")
+        self.bg_img_repeat.setCurrentText("no-repeat")
+        self.bg_img_attach.setCurrentText("scroll")
+        self.bg_kind.blockSignals(True)
+        block_lower = block.lower()
+        if "linear-gradient" in block_lower:
+            self.bg_kind.setCurrentText("Gradient")
+            self.bg_stack.setCurrentIndex(2)
+        elif "background-image" in block_lower:
+            self.bg_kind.setCurrentText("Image")
+            self.bg_stack.setCurrentIndex(1)
+        elif "video" in block_lower:
+            self.bg_kind.setCurrentText("Video")
+            self.bg_stack.setCurrentIndex(3)
         else:
-            default_solid = self.project.palette.get("surface", "#f8fafc")
-            self.bg_solid_color.setColor(default_solid)
+            self.bg_kind.setCurrentText("None")
+            self.bg_stack.setCurrentIndex(0)
+        self.bg_kind.blockSignals(False)
 
-        if spec and spec.kind == "gradient":
-            self.bg_gradient_from.setColor(spec.value.get("from", DEFAULT_GRADIENT["from"]))
-            self.bg_gradient_to.setColor(spec.value.get("to", DEFAULT_GRADIENT["to"]))
-            angle_val = spec.value.get("angle", DEFAULT_GRADIENT["angle"]).replace("deg", "")
-            try:
-                self.bg_gradient_angle.setValue(int(float(angle_val)))
-            except ValueError:
-                self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
-        else:
-            self.bg_gradient_from.setColor(DEFAULT_GRADIENT["from"])
-            self.bg_gradient_to.setColor(DEFAULT_GRADIENT["to"])
-            self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
-
-        if spec and spec.kind == "image":
-            self.bg_image_path.setText(spec.value.get("file", ""))
-            self.bg_image_position_combo.setCurrentText(spec.value.get("position", "center"))
-            self.bg_image_size_combo.setCurrentText(spec.value.get("size", "cover"))
-            self.bg_image_fixed.setChecked(spec.value.get("fixed") == "1")
-        else:
-            self.bg_image_path.clear()
-            self.bg_image_position_combo.setCurrentText("center")
-            self.bg_image_size_combo.setCurrentText("cover")
-            self.bg_image_fixed.setChecked(False)
-
-        if spec and spec.kind == "pattern":
-            pattern_name = spec.value.get("pattern")
-            if pattern_name in BACKGROUND_PATTERN_PRESETS:
-                self.bg_pattern_combo.setCurrentText(pattern_name)
-        else:
-            if self.bg_pattern_combo.count():
-                self.bg_pattern_combo.setCurrentIndex(0)
-
-        self.bg_insert_markup.setChecked(False)
-        self._update_background_pattern_preview()
-
-    # Theme helpers -----------------------------------------------------
     def _compose_css(
+(
+(
+(
         self,
         *,
         extra_override: Optional[str] = None,
@@ -7839,6 +7584,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return ""
         current_css = self.css_editor.toPlainText()
         helper_block = helper_override or extract_css_block(current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
+        background_block = extract_css_block(current_css, BACKGROUND_SENTINEL)
         extra_block = extra_override
         if extra_block is None:
             extra_block = extract_css_block(current_css, TEMPLATE_EXTRA_SENTINEL)
@@ -7854,13 +7600,10 @@ class MainWindow(QtWidgets.QMainWindow):
         css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(self.project.motion_pref))
         if extra_block:
             css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
-        css = self._strip_background_blocks(css)
-        if self.project.backgrounds:
-            blocks = [self._build_background_block(spec) for spec in self.project.backgrounds]
-            blocks = [block for block in blocks if block]
-            if blocks:
-                combined = f"{BACKGROUND_BLOCK_START}\n" + "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
-                css = (css + "\n\n" + combined).strip() if css else combined
+        if background_block:
+            css = _set_or_replace_block(css, BACKGROUND_SENTINEL, background_block)
+        else:
+            css = _set_or_replace_block(css, BACKGROUND_SENTINEL, "body { background: var(--color-surface); }")
         return css
 
     def apply_theme(self) -> None:
@@ -7941,6 +7684,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_dirty(True)
         self.update_preview()
         self.status_bar.showMessage("Theme applied", 4000)
+
+    def _apply_theme_preset(self, name: str) -> None:  # noqa: ARG002
+        if not self.project:
+            return
+        self.apply_theme()
 
     def add_css_helpers(self) -> None:
         css = self.css_editor.toPlainText()
