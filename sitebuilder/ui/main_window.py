@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from typing import cast, Literal
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -101,6 +102,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_menu(self) -> None:
         bar = self.menuBar()
+        if bar is None:
+            bar = QtWidgets.QMenuBar(self)
+            self.setMenuBar(bar)
 
         file_menu = bar.addMenu("&File")
         act_new = QtGui.QAction("New Project", self)
@@ -111,13 +115,20 @@ class MainWindow(QtWidgets.QMainWindow):
         act_export = QtGui.QAction("Export Site…", self)
         act_quit = QtGui.QAction("Quit", self)
 
-        file_menu.addActions([act_new, act_open, act_import])
-        file_menu.addSeparator()
-        file_menu.addActions([act_save, act_save_as])
-        file_menu.addSeparator()
-        file_menu.addAction(act_export)
-        file_menu.addSeparator()
-        file_menu.addAction(act_quit)
+        if file_menu is not None:
+            file_menu.addActions([act_new, act_open, act_import])
+        if file_menu is not None:
+            file_menu.addSeparator()
+        if file_menu is not None:
+            file_menu.addActions([act_save, act_save_as])
+        if file_menu is not None:
+            file_menu.addSeparator()
+        if file_menu is not None:
+            file_menu.addAction(act_export)
+        if file_menu is not None:
+            file_menu.addSeparator()
+        if file_menu is not None:
+            file_menu.addAction(act_quit)
 
         self.act_new = act_new
         self.act_open = act_open
@@ -129,7 +140,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         help_menu = bar.addMenu("&Help")
         self.act_about = QtGui.QAction("About", self)
-        help_menu.addAction(self.act_about)
+        if help_menu is not None:
+            help_menu.addAction(self.act_about)
 
     def _bind_events(self) -> None:
         self.btn_add_page.clicked.connect(self.add_page)
@@ -182,7 +194,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.css_editor.setPlainText(self.project.css)
         self.update_window_title()
         self.update_preview()
-        self.status.showMessage(f"Opened {os.path.basename(path)}", 4000)
+        if self.status is not None:
+            self.status.showMessage(f"Opened {os.path.basename(path)}", 4000)
 
     def save_project(self) -> None:
         if self.project is None:
@@ -192,7 +205,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.save_project_as()
             return
         storage.save_project(self.project_path, self.project)
-        self.status.showMessage("Project saved", 2500)
+        if self.status is not None:
+            self.status.showMessage("Project saved", 2500)
 
     def save_project_as(self) -> None:
         if self.project is None:
@@ -205,7 +219,8 @@ class MainWindow(QtWidgets.QMainWindow):
         storage.save_project(path, self.project)
         self.project_path = Path(path)
         self.update_window_title()
-        self.status.showMessage(f"Saved {os.path.basename(path)}", 4000)
+        if self.status is not None:
+            self.status.showMessage(f"Saved {os.path.basename(path)}", 4000)
 
     def export_site(self) -> None:
         if self.project is None:
@@ -216,7 +231,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         templates_dir = Path(__file__).resolve().parent.parent / "core" / "templates"
         generator.render_site(self.project, out_dir, templates_dir)
-        self.status.showMessage(f"Exported site to {out_dir}", 5000)
+        if self.status is not None:
+            self.status.showMessage(f"Exported site to {out_dir}", 5000)
         QtWidgets.QMessageBox.information(self, "Export complete", f"Your site was exported to:\n{out_dir}")
 
     def import_project_dialog(self) -> None:
@@ -280,9 +296,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project_path = None
 
         if result.errors:
-            self.status.showMessage("Import completed with errors", 5000)
+            if self.status is not None:
+                self.status.showMessage("Import completed with errors", 5000)
         else:
-            self.status.showMessage("Import complete", 5000)
+            if self.status is not None:
+                self.status.showMessage("Import complete", 5000)
 
         new_index = 0
         for idx, page in enumerate(target_project.pages):
@@ -605,7 +623,9 @@ class ImportDialog(QtWidgets.QDialog):
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
             parent=self,
         )
-        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText("Import")
+        ok_button = buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            ok_button.setText("Import")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -694,8 +714,9 @@ class ImportDialog(QtWidgets.QDialog):
         allowed_exts = set()
         for i in range(self.ext_list.count()):
             item = self.ext_list.item(i)
-            if item.checkState() == QtCore.Qt.CheckState.Checked:
-                allowed_exts.add(item.text())
+            if item is not None:
+                if item.checkState() == QtCore.Qt.CheckState.Checked:
+                    allowed_exts.add(item.text())
         conflict_map = {
             "Keep both": "keep-both",
             "Overwrite": "overwrite",
@@ -717,12 +738,12 @@ class ImportDialog(QtWidgets.QDialog):
         }
         return ImportOptions(
             create_new_project=self.create_new_radio.isChecked(),
-            page_filename_strategy=filename_map[self.page_filename_combo.currentText()],
-            conflict_policy=conflict_map[self.conflict_combo.currentText()],
-            merge_css=css_map[self.css_combo.currentText()],
+            page_filename_strategy=cast(Literal["keep", "slugify", "prefix-collisions"], filename_map[self.page_filename_combo.currentText()]),
+            conflict_policy=cast(Literal["overwrite", "keep-both", "skip"], conflict_map[self.conflict_combo.currentText()]),
+            merge_css=cast(Literal["append", "prepend", "replace"], css_map[self.css_combo.currentText()]),
             rewrite_links=self.rewrite_links_check.isChecked(),
             rewrite_asset_urls=self.rewrite_assets_check.isChecked(),
-            md_flavor=md_map[self.markdown_combo.currentText()],
+            md_flavor=cast(Literal["gfm", "commonmark"], md_map[self.markdown_combo.currentText()]),
             text_wrap_paragraphs=self.wrap_text_check.isChecked(),
             set_home_to_index_if_present=self.home_index_check.isChecked(),
             ignore_hidden=self.ignore_hidden_check.isChecked(),
