@@ -3166,7 +3166,7 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
         text_rect.width(),
         text_rect.height() - heading_font.pointSizeF() * 1.8,
     )
-    painter.drawText(tagline_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.TextWordWrap, tagline)
+    painter.drawText(tagline_rect, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, tagline)
 
     chip_height = 36
     chip_spacing = 16
@@ -3180,7 +3180,7 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
         path.addRoundedRect(rect, chip_height / 2, chip_height / 2)
         painter.fillPath(path, bg)
         painter.setPen(QtGui.QPen(QtGui.QColor(bg).darker(115) if fg == cta_text_color else fg))
-        painter.setFont(QtGui.QFont(body_font.family(), max(12.0, size.width() / 70)))
+        painter.setFont(QtGui.QFont(body_font.family(), int(max(12.0, size.width() / 70))))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
 
     draw_chip(chip_rect_primary, primary, cta_text_color, "Get started")
@@ -3212,11 +3212,11 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
             scaled.width(),
             scaled.height(),
         )
-        painter.drawPixmap(target, scaled)
+        painter.drawPixmap(target.toRect(), scaled)
         painter.setClipping(False)
         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 25), 2))
         painter.drawPath(art_path)
-    painter.restore()
+        painter.restore()
 
     cards_top = hero_rect.bottom() + margin * 0.6
     card_area_height = size.height() - cards_top - margin
@@ -3240,7 +3240,7 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
             painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 18)))
             painter.drawPath(card_path)
             painter.setPen(QtGui.QPen(text_color))
-            painter.setFont(QtGui.QFont(heading_font.family(), max(14.0, size.width() / 55)))
+            painter.setFont(QtGui.QFont(heading_font.family(), int(max(14.0, size.width() / 55))))
             heading_rect = QtCore.QRectF(
                 card_rect.left() + 20,
                 card_rect.top() + 18,
@@ -3248,7 +3248,7 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
                 40,
             )
             painter.drawText(heading_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, title)
-            painter.setFont(QtGui.QFont(body_font.family(), max(12.0, size.width() / 70)))
+            painter.setFont(QtGui.QFont(body_font.family(), int(max(12.0, size.width() / 70))))
             body_rect = QtCore.QRectF(
                 heading_rect.left(),
                 heading_rect.bottom() + 12,
@@ -3262,7 +3262,7 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
             ]
             painter.drawText(
                 body_rect,
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.TextWordWrap,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
                 sample[idx % len(sample)],
             )
 
@@ -4176,18 +4176,18 @@ class TemplateCard(QtWidgets.QFrame):
         else:
             self.thumb.setPixmap(pixmap.scaled(self.thumb.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
 
-    def enterEvent(self, event: QtCore.QEvent) -> None:
-        self.preview_button.setVisible(True)
-        super().enterEvent(event)
+    def enterEvent(self, event: QtGui.QEnterEvent) -> None:
+          self.preview_button.setVisible(True)
+          super().enterEvent(event)
 
-    def leaveEvent(self, event: QtCore.QEvent) -> None:
-        self.preview_button.setVisible(False)
-        super().leaveEvent(event)
+    def leaveEvent(self, event: QtGui.QEnterEvent) -> None:
+          self.preview_button.setVisible(False)
+          super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self.template.key)
-        super().mouseReleaseEvent(event)
+          if event.button() == Qt.MouseButton.LeftButton:
+              self.clicked.emit(self.template.key)
+          super().mouseReleaseEvent(event)
 
 
 class RecentTileList(QtWidgets.QListWidget):
@@ -6282,7 +6282,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.design_surface.setText(palette["surface"])
             self.design_text.setText(palette["text"])
         if style:
-            fonts = dict(style.get("fonts", fonts))
+            fonts = style.get("fonts", fonts)
             gradient_info = style.get("gradients")
             if isinstance(gradient_info, dict):
                 grad_from = str(gradient_info.get("from", DEFAULT_GRADIENT["from"]))
@@ -6299,10 +6299,17 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.gradient_to.blockSignals(False)
                 self.gradient_angle_combo.blockSignals(False)
             if style.get("radius_scale") is not None:
-                radius_val = float(style.get("radius_scale", 1.0))
+                raw_radius = style.get("radius_scale", 1.0)
+                if isinstance(raw_radius, (int, float, str)):
+                    try:
+                        radius_val = float(raw_radius)
+                    except (TypeError, ValueError):
+                        radius_val = 1.0
+                else:
+                    radius_val = 1.0
                 self.project.radius_scale = radius_val
                 self.radius_spin.blockSignals(True)
-                self.radius_spin.setValue(radius_val)
+                self.radius_spin.setValue(float(radius_val))
                 self.radius_spin.blockSignals(False)
             if style.get("shadow_level") in SHADOW_LEVELS:
                 shadow_val = str(style.get("shadow_level"))
@@ -6315,10 +6322,12 @@ class MainWindow(QtWidgets.QMainWindow):
             if extra_css:
                 clean_extra = f"{clean_extra}\n\n{extra_css}".strip() if clean_extra else extra_css
         self.project.palette = palette
+        if not isinstance(fonts, dict):
+            fonts = {"heading": str(fonts), "body": str(fonts)}
         self.project.fonts = fonts
         self.project.theme_preset = theme
-        self.design_heading_font.setCurrentText(fonts["heading"])
-        self.design_body_font.setCurrentText(fonts["body"])
+        self.design_heading_font.setCurrentText(fonts.get("heading", ""))
+        self.design_body_font.setCurrentText(fonts.get("body", ""))
         css = self._compose_css(extra_override=clean_extra or None, helper_override=helper_block)
         self.css_editor.setPlainText(css)
         self.project.css = css
@@ -6656,7 +6665,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_dirty(True)
         self.status_bar.showMessage(f"Placeholder {width}×{height} added", 4000)
         data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
-        QtWidgets.QApplication.clipboard().setText(data_uri)
+        clipboard = QtWidgets.QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(data_uri)
         self._maybe_render_cover(force=True)
 
     # File operations ---------------------------------------------------
