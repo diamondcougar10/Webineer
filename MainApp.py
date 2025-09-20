@@ -1,6 +1,6 @@
-"""Webineer Site Builder — enhanced single-file PyQt6 app."""
+# Restore svg_wave function above its first usage
 from __future__ import annotations
-
+from jinja2 import DictLoader, Environment, select_autoescape
 import base64
 import hashlib
 import json
@@ -18,17 +18,30 @@ import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-
 from typing import Callable, Dict, Iterable, List, Optional, Tuple, cast
-
-# Ensure migrate_project_v1_to_v2 is defined before use
-# (Already defined later in this file)
-
 from PyQt6 import QtCore, QtGui, QtWidgets
 from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from jinja2 import DictLoader, Environment, select_autoescape
+
+
+def svg_wave(fill: str = "#e2e8f0") -> str:
+
+  path = (
+    "M0,96L60,90C120,85,240,74,360,72C480,70,600,78,720,90C840,102,960,118,1080,114C1200,110,1320,86,1380,74L1440,64L1440,120L1380,120C1320,120,1200,120,1080,120C960,120,840,120,720,120C600,120,480,120,360,120C240,120,120,120,60,120L0,120Z"
+  )
+  return (
+    "<svg class=\"wave\" aria-hidden=\"true\" viewBox=\"0 0 1440 120\" preserveAspectRatio=\"none\">"
+    f"<path fill=\"{fill}\" d=\"{path}\"></path></svg>"
+  )
+
+
+"""Webineer Site Builder — enhanced single-file PyQt6 app."""
+
+
+# Ensure migrate_project_v1_to_v2 is defined before use
+# (Already defined later in this file)
+
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
 APP_TITLE = "Webineer Site Builder"
@@ -96,12 +109,18 @@ class SettingsManager:
     def load(self) -> None:
         if SETTINGS_PATH.exists():
             try:
-                self._settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+                self._settings = json.loads(
+    SETTINGS_PATH.read_text(
+        encoding="utf-8"))
             except Exception:
                 self._settings = {}
 
     def save(self) -> None:
-        SETTINGS_PATH.write_text(json.dumps(self._settings, indent=2), encoding="utf-8")
+        SETTINGS_PATH.write_text(
+    json.dumps(
+        self._settings,
+        indent=2),
+         encoding="utf-8")
 
     def get(self, key: str, default: str = "") -> str:
         return self._settings.get(key, default)
@@ -191,8 +210,10 @@ class ExternalAsset:
             mode=str(data.get("mode", "cdn")),
             href=href,
             sri=str(sri_val) if isinstance(sri_val, str) and sri_val else None,
-            original_url=str(original) if isinstance(original, str) and original else None,
-            data_base64=str(encoded) if isinstance(encoded, str) and encoded else None,
+            original_url=str(original) if isinstance(
+                original, str) and original else None,
+            data_base64=str(encoded) if isinstance(
+                encoded, str) and encoded else None,
         )
 
 
@@ -203,7 +224,11 @@ class BackgroundSpec:
     value: Dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, object]:
-        return {"scope": self.scope, "kind": self.kind, "value": dict(self.value)}
+        return {
+    "scope": self.scope,
+    "kind": self.kind,
+    "value": dict(
+        self.value)}
 
     @classmethod
     def from_dict(cls, data: Dict[str, object]) -> "BackgroundSpec":
@@ -213,7 +238,12 @@ class BackgroundSpec:
             value = {str(k): str(v) for k, v in raw_value.items()}
         else:
             value = {}
-        return cls(scope=str(data.get("scope", "site")), kind=str(data.get("kind", "solid")), value=value)
+        return cls(
+    scope=str(
+        data.get(
+            "scope", "site")), kind=str(
+                data.get(
+                    "kind", "solid")), value=value)
 
 
 DEFAULT_PALETTE = {
@@ -245,13 +275,16 @@ MOTION_PREF_OPTIONS: Dict[str, str] = {
     "Force off": "force_off",
 }
 
+
 @dataclass
 class Project:
         name: str = "My Site"
         pages: List[Page] = field(default_factory=list)
         css: str = ""
-        palette: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PALETTE))
-        fonts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_FONTS))
+        palette: Dict[str, str] = field(
+            default_factory=lambda: dict(DEFAULT_PALETTE))
+        fonts: Dict[str, str] = field(
+            default_factory=lambda: dict(DEFAULT_FONTS))
         images: List[AssetImage] = field(default_factory=list)
         external: List[ExternalAsset] = field(default_factory=list)
         backgrounds: List[BackgroundSpec] = field(default_factory=list)
@@ -261,7 +294,8 @@ class Project:
         output_dir: Optional[str] = None
         version: int = SITE_VERSION
         use_scroll_animations: bool = False
-        gradients: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GRADIENT))
+        gradients: Dict[str, str] = field(
+            default_factory=lambda: dict(DEFAULT_GRADIENT))
         radius_scale: float = 1.0
         shadow_level: str = "md"
         motion_pref: str = "respect"
@@ -273,7 +307,7 @@ class Project:
         cover_updated_utc: Optional[str] = None
         cover_asset_name: Optional[str] = None
         cover_tile_path: Optional[str] = None
-    
+
         def to_dict(self) -> Dict[str, object]:
             return {
                 "name": self.name,
@@ -303,7 +337,7 @@ class Project:
                 "cover_asset_name": self.cover_asset_name,
                 "cover_tile_path": self.cover_tile_path,
             }
-    
+
         @classmethod
         def from_dict(cls, data: Dict[str, object]) -> "Project":
             def safe_int(val, default=1):
@@ -311,26 +345,32 @@ class Project:
                     return int(val)
                 except (TypeError, ValueError):
                     return default
-    
+
             def safe_float(val, default=1.0):
                 try:
                     return float(val)
                 except (TypeError, ValueError):
                     return default
-    
+
             def safe_list(val):
                 return val if isinstance(val, list) else []
-    
+
             def safe_dict(val, default):
                 if isinstance(val, dict):
                     return {str(k): str(v) for k, v in val.items()}
                 return dict(default)
-    
+
             version = safe_int(data.get("version", 1))
             if version == 1:
                 data = migrate_project_v1_to_v2(data)
             pages = [Page(**p) for p in safe_list(data.get("pages", []))]
-            images = [AssetImage.from_dict(img) for img in safe_list(data.get("images", [])) if isinstance(img, dict)]
+            images = [
+    AssetImage.from_dict(img) for img in safe_list(
+        data.get(
+            "images",
+            [])) if isinstance(
+                img,
+                 dict)]
             external_items: List[ExternalAsset] = []
             for entry in safe_list(data.get("external", [])):
                 if isinstance(entry, dict):
@@ -340,7 +380,8 @@ class Project:
             if isinstance(backgrounds_data, list):
                 for entry in backgrounds_data:
                     if isinstance(entry, dict):
-                        background_items.append(BackgroundSpec.from_dict(entry))
+                        background_items.append(
+                            BackgroundSpec.from_dict(entry))
             elif isinstance(backgrounds_data, dict):
                 for key, entry in backgrounds_data.items():
                     if isinstance(entry, dict):
@@ -350,10 +391,15 @@ class Project:
                             BackgroundSpec(
                                 scope=str(entry.get("scope", "page")),
                                 kind=str(entry.get("kind", "solid")),
-                                value={str(k): str(v) for k, v in value.items()},
+                                value={str(k): str(v)
+                                           for k, v in value.items()},
                             )
                         )
-            palette = safe_dict(data.get("palette", DEFAULT_PALETTE), DEFAULT_PALETTE)
+            palette = safe_dict(
+    data.get(
+        "palette",
+        DEFAULT_PALETTE),
+         DEFAULT_PALETTE)
             fonts = safe_dict(data.get("fonts", DEFAULT_FONTS), DEFAULT_FONTS)
             output_dir = data.get("output_dir")
             if output_dir is not None and not isinstance(output_dir, str):
@@ -375,20 +421,24 @@ class Project:
             motion_pref = str(data.get("motion_pref", "respect"))
             if motion_pref not in {"respect", "force_on", "force_off"}:
                 motion_pref = "respect"
-            motion_default_effect = str(data.get("motion_default_effect", "none"))
+            motion_default_effect = str(
+                data.get("motion_default_effect", "none"))
             if motion_default_effect not in {"none", "fade", "zoom", "blur"}:
                 motion_default_effect = "none"
             motion_default_easing = str(
                 data.get("motion_default_easing", "cubic-bezier(.2,.65,.2,1)")
             )
-            motion_default_duration = safe_int(data.get("motion_default_duration", 600), 600)
+            motion_default_duration = safe_int(
+                data.get("motion_default_duration", 600), 600)
             if motion_default_duration < 0:
                 motion_default_duration = 600
-            motion_default_delay = safe_int(data.get("motion_default_delay", 0), 0)
+            motion_default_delay = safe_int(
+                data.get("motion_default_delay", 0), 0)
             if motion_default_delay < 0:
                 motion_default_delay = 0
             cover_path_raw = data.get("cover_path")
-            cover_path = str(cover_path_raw) if isinstance(cover_path_raw, str) or cover_path_raw is None else str(cover_path_raw)
+            cover_path = str(cover_path_raw) if isinstance(
+    cover_path_raw, str) or cover_path_raw is None else str(cover_path_raw)
             cover_updated = data.get("cover_updated_utc")
             cover_asset_name = data.get("cover_asset_name")
             cover_tile_raw = data.get("cover_tile_path")
@@ -411,7 +461,8 @@ class Project:
                 use_main_js=bool(data.get("use_main_js", False)),
                 output_dir=output_dir,
                 version=version,
-                use_scroll_animations=bool(data.get("use_scroll_animations", False)),
+                use_scroll_animations=bool(
+                    data.get("use_scroll_animations", False)),
                 gradients=gradients,
                 radius_scale=radius_scale,
                 shadow_level=shadow_level,
@@ -421,18 +472,16 @@ class Project:
                 motion_default_duration=motion_default_duration,
                 motion_default_delay=motion_default_delay,
                 cover_path=cover_path,
-                cover_updated_utc=str(cover_updated) if cover_updated else None,
-                cover_asset_name=str(cover_asset_name) if cover_asset_name else None,
+                cover_updated_utc=str(
+                    cover_updated) if cover_updated else None,
+                cover_asset_name=str(
+                    cover_asset_name) if cover_asset_name else None,
                 cover_tile_path=cover_tile,
             )
 
 # ---------------------------------------------------------------------------
 # Templates & presets
 # ---------------------------------------------------------------------------
-
-
-
-
 
 
 THEME_PRESETS: Dict[str, Dict[str, str]] = {
@@ -901,6 +950,7 @@ def animation_helpers_block(motion_pref: str = "respect") -> str:
 """
     )
 
+
 CSS_SENTINELS = (
     CSS_HELPERS_SENTINEL,
     BG_HELPERS_SENTINEL,
@@ -918,7 +968,7 @@ def ensure_block(css: str, sentinel: str, block: str) -> str:
     base = css.rstrip()
     block_content = block.strip()
     if block_content.startswith(sentinel):
-        block_content = block_content[len(sentinel) :].lstrip("\n")
+        block_content = block_content[len(sentinel):].lstrip("\n")
     addition = f"{sentinel}\n{block_content}\n" if block_content else f"{sentinel}\n"
     if base:
         return base + "\n\n" + addition
@@ -953,6 +1003,8 @@ def strip_theme_extras(block: Optional[str]) -> str:
     pattern = re.compile(r"/\* theme:.*?\*/.*?(?=(/\* theme:)|$)", re.S)
     cleaned = re.sub(pattern, "", block)
     return cleaned.strip()
+
+
 MAIN_JS_SNIPPET = """// Lightweight helpers for Webineer components
 (function(){
   const navToggle = document.querySelector('[data-toggle="mobile-nav"]');
@@ -1512,7 +1564,8 @@ class ColorButton(QtWidgets.QPushButton):
 
     colorChanged = QtCore.pyqtSignal(str)
 
-    def __init__(self, color: str = "#ffffff", parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, color: str = "#ffffff",
+                 parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
         self._color = color or "#ffffff"
         self.setMinimumWidth(80)
@@ -1532,14 +1585,16 @@ class ColorButton(QtWidgets.QPushButton):
         self.colorChanged.emit(color)
 
     def _choose_color(self) -> None:
-        dialog_color = QtWidgets.QColorDialog.getColor(QtGui.QColor(self._color), self.window())
+        dialog_color = QtWidgets.QColorDialog.getColor(
+            QtGui.QColor(self._color), self.window())
         if dialog_color.isValid():
             self.setColor(dialog_color.name())
 
     def _update_style(self) -> None:
         self.setText(self._color.upper())
         self.setStyleSheet(
-            f"background:{self._color}; border: 1px solid rgba(148,163,184,0.6); border-radius:4px;"
+            f"background:{
+    self._color}; border: 1px solid rgba(148,163,184,0.6); border-radius:4px;"
             " padding: 6px;"
         )
 
@@ -1601,16 +1656,6 @@ def svg_diagonal_stripes(bg: str = "#ffffff", stripe: str = "#f1f5f9") -> str:
     return f"""<svg viewBox=\"0 0 400 200\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\">\n  <defs>\n    <pattern id=\"diagonal\" width=\"20\" height=\"20\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n      <rect width=\"20\" height=\"20\" fill=\"{bg}\"/>\n      <rect width=\"10\" height=\"20\" fill=\"{stripe}\"/>\n    </pattern>\n  </defs>\n  <rect width=\"400\" height=\"200\" fill=\"url(#diagonal)\"/>\n</svg>"""
 
 
-def svg_wave(fill: str = "#e2e8f0") -> str:
-    path = (
-        "M0,96L60,90C120,85,240,74,360,72C480,70,600,78,720,90C840,102,960,118,1080,114C1200,110,1320,86,1380,74L1440,64L1440,120L1380,120C1320,120,1200,120,1080,120C960,120,840,120,720,120C600,120,480,120,360,120C240,120,120,120,60,120L0,120Z"
-    )
-    return (
-        "<svg class=\"wave\" aria-hidden=\"true\" viewBox=\"0 0 1440 120\" preserveAspectRatio=\"none\">"
-        f"<path fill=\"{fill}\" d=\"{path}\"></path></svg>"
-    )
-
-
 BACKGROUND_SCOPE_CHOICES = ["Entire site", "Current page"]
 BACKGROUND_KIND_CHOICES = ["Solid", "Gradient", "Image", "Pattern"]
 BACKGROUND_PATTERN_PRESETS: Dict[str, str] = {
@@ -1621,6 +1666,7 @@ BACKGROUND_PATTERN_PRESETS: Dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Template specifications
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class TemplateSpec:
@@ -1640,7 +1686,9 @@ class TemplateSpec:
 
 def _starter_spec() -> TemplateSpec:
     hero = html_section_hero()
-    hero = hero.replace("Headline that inspires confidence", "Welcome to {{SITE_NAME}}")
+    hero = hero.replace(
+    "Headline that inspires confidence",
+     "Welcome to {{SITE_NAME}}")
     hero = hero.replace(
         "Explain what you offer and the value in a friendly tone.",
         "Share a friendly, one-sentence promise that sets the tone.",
@@ -1856,9 +1904,11 @@ def _portfolio_spec() -> TemplateSpec:
     </article>
   </div>
 </section>"""
-    contact_page = "\n\n".join([html_section_contact_form(), html_section_faq()])
+    contact_page = "\n\n".join(
+        [html_section_contact_form(), html_section_faq()])
     palette = {"primary": "#15803d", "surface": "#f0fdf4", "text": "#052e16"}
-    fonts = {"heading": "'Poppins', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    fonts = {"heading": "'Poppins', 'Segoe UI', sans-serif",
+        "body": "'Inter', 'Segoe UI', sans-serif"}
     cover_html = """
 <div class=\"portfolio-cover\">
   <section class=\"portfolio-hero\">
@@ -2010,7 +2060,9 @@ body {
 
 def _resource_spec() -> TemplateSpec:
     hero = html_section_hero()
-    hero = hero.replace("Headline that inspires confidence", "{{SITE_NAME}} Resource Hub")
+    hero = hero.replace(
+    "Headline that inspires confidence",
+     "{{SITE_NAME}} Resource Hub")
     hero = hero.replace(
         "Explain what you offer and the value in a friendly tone.",
         "Find guides, tutorials, and quick wins for your team.",
@@ -2079,7 +2131,9 @@ def _resource_spec() -> TemplateSpec:
   </div>
 </section>"""
     palette = {"primary": "#6366f1", "surface": "#111827", "text": "#f9fafb"}
-    fonts = {"heading": "'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    fonts = {
+    "heading": "'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif",
+     "body": "'Inter', 'Segoe UI', sans-serif"}
     cover_html = """
 <div class=\"resource-cover\">
   <section class=\"resource-hero\">
@@ -2290,8 +2344,6 @@ body {
     )
 
 
-
-
 def _saas_bold_spec() -> TemplateSpec:
     hero = """<section class="hero bg-gradient text-on-gradient">
   <div class="container grid split-2 align-center">
@@ -2390,7 +2442,10 @@ def _saas_bold_spec() -> TemplateSpec:
   </div>
 </section>"""
     platform_html = "\n\n".join([platform_section, html_section_faq()])
-    pricing_html = "\n\n".join([_pricing_hero(), html_section_pricing(), html_section_testimonials(), html_section_cta()])
+    pricing_html = "\n\n".join([_pricing_hero(),
+    html_section_pricing(),
+    html_section_testimonials(),
+     html_section_cta()])
     extra_css = """.glass-panel {
   backdrop-filter: blur(18px);
   background: rgba(15, 23, 42, 0.4);
@@ -2431,7 +2486,8 @@ def _saas_bold_spec() -> TemplateSpec:
 }
 """
     palette = {"primary": "#38bdf8", "surface": "#0f172a", "text": "#e0f2fe"}
-    fonts = {"heading": "'Space Grotesk', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    fonts = {"heading": "'Space Grotesk', 'Segoe UI', sans-serif",
+        "body": "'Inter', 'Segoe UI', sans-serif"}
     gradients = {"from": "#22d3ee", "to": "#6366f1", "angle": "118deg"}
     cover_html = """
 <div class=\"saas-cover\">
@@ -2782,7 +2838,8 @@ def _photo_showcase_spec() -> TemplateSpec:
 }
 """
     palette = {"primary": "#f59e0b", "surface": "#0f172a", "text": "#f8fafc"}
-    fonts = {"heading": "'Playfair Display', 'Times New Roman', serif", "body": "'Source Sans Pro', 'Helvetica Neue', sans-serif"}
+    fonts = {"heading": "'Playfair Display', 'Times New Roman', serif",
+        "body": "'Source Sans Pro', 'Helvetica Neue', sans-serif"}
     gradients = {"from": "#0ea5e9", "to": "#f472b6", "angle": "135deg"}
     cover_html = """
 <div class=\"photo-cover\">
@@ -3055,7 +3112,8 @@ def _event_launch_spec() -> TemplateSpec:
     </div>
   </div>
 </section>"""
-    index_html = "\n\n".join([hero, highlights, schedule, speakers, tickets, html_section_faq()])
+    index_html = "\n\n".join(
+        [hero, highlights, schedule, speakers, tickets, html_section_faq()])
     travel_page = """<section class="section">
   <h1>Plan your visit</h1>
   <div class="grid split-2">
@@ -3125,7 +3183,8 @@ def _event_launch_spec() -> TemplateSpec:
 }
 """
     palette = {"primary": "#fb923c", "surface": "#111827", "text": "#fef3c7"}
-    fonts = {"heading": "'Plus Jakarta Sans', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    fonts = {"heading": "'Plus Jakarta Sans', 'Segoe UI', sans-serif",
+        "body": "'Inter', 'Segoe UI', sans-serif"}
     gradients = {"from": "#fb923c", "to": "#f43f5e", "angle": "120deg"}
     cover_html = """
 <div class=\"event-cover\">
@@ -3328,10 +3387,15 @@ body {
         cover_css=cover_css,
     )
 
+
 def _pricing_hero() -> str:
     hero = html_section_hero()
-    hero = hero.replace("Headline that inspires confidence", "Pricing that scales with you")
-    hero = hero.replace("Explain what you offer and the value in a friendly tone.", "Pick the plan that matches your stage.")
+    hero = hero.replace(
+    "Headline that inspires confidence",
+     "Pricing that scales with you")
+    hero = hero.replace(
+    "Explain what you offer and the value in a friendly tone.",
+     "Pick the plan that matches your stage.")
     hero = hero.replace("Primary call to action", "Choose a plan")
     hero = hero.replace("Secondary link", "Contact sales")
     return hero
@@ -3339,8 +3403,12 @@ def _pricing_hero() -> str:
 
 def _contact_intro() -> str:
     hero = html_section_hero()
-    hero = hero.replace("Headline that inspires confidence", "We’d love to hear from you")
-    hero = hero.replace("Explain what you offer and the value in a friendly tone.", "Reach out with project ideas, support questions, or quick hellos.")
+    hero = hero.replace(
+    "Headline that inspires confidence",
+     "We’d love to hear from you")
+    hero = hero.replace(
+    "Explain what you offer and the value in a friendly tone.",
+     "Reach out with project ideas, support questions, or quick hellos.")
     hero = hero.replace("Primary call to action", "Send a message")
     hero = hero.replace("Secondary link", "Schedule a call")
     return hero
@@ -3370,12 +3438,18 @@ def page_pricing() -> str:
 
 
 def page_about() -> str:
-    sections = [html_section_about_header(), html_section_two_column(), html_section_testimonials()]
+    sections = [
+    html_section_about_header(),
+    html_section_two_column(),
+     html_section_testimonials()]
     return "\n\n".join(sections)
 
 
 def page_contact() -> str:
-    sections = [_contact_intro(), html_section_contact_form(), html_section_faq()]
+    sections = [
+    _contact_intro(),
+    html_section_contact_form(),
+     html_section_faq()]
     return "\n\n".join(sections)
 
 
@@ -3416,7 +3490,10 @@ def page_blog_post() -> str:
 
 
 def page_portfolio() -> str:
-    sections = [html_section_gallery(), html_section_testimonials(), html_section_cta()]
+    sections = [
+    html_section_gallery(),
+    html_section_testimonials(),
+     html_section_cta()]
     return "\n\n".join(sections)
 
 
@@ -3520,7 +3597,8 @@ def _normalize_hex(color: str, default: str) -> str:
     return default
 
 
-def _color_from_palette(palette: Dict[str, str], key: str, fallback: str) -> QtGui.QColor:
+def _color_from_palette(
+    palette: Dict[str, str], key: str, fallback: str) -> QtGui.QColor:
     value = _normalize_hex(palette.get(key, fallback), fallback)
     color = QtGui.QColor(value)
     if not color.isValid():
@@ -3540,7 +3618,8 @@ def _contrast_text_for(color: QtGui.QColor) -> QtGui.QColor:
         return QtGui.QColor("#0f172a")
     r, g, b = color.redF(), color.greenF(), color.blueF()
     luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
-    return QtGui.QColor("#0f172a") if luminance > 0.55 else QtGui.QColor("#f8fafc")
+    return QtGui.QColor(
+        "#0f172a") if luminance > 0.55 else QtGui.QColor("#f8fafc")
 
 
 def _extract_tagline(project: Project) -> str:
@@ -3571,9 +3650,11 @@ def _collect_card_titles(project: Project) -> List[str]:
 def _project_cover_asset(project: Project) -> Optional[QtGui.QPixmap]:
     candidate: Optional[AssetImage] = None
     if project.cover_asset_name:
-        candidate = next((img for img in project.images if img.name == project.cover_asset_name), None)
+        candidate = next(
+    (img for img in project.images if img.name == project.cover_asset_name), None)
     if candidate is None:
-        candidate = next((img for img in project.images if img.mime != "image/svg+xml"), None)
+        candidate = next(
+    (img for img in project.images if img.mime != "image/svg+xml"), None)
     if candidate is None and project.images:
         candidate = project.images[0]
     if candidate is None or not candidate.data_base64:
@@ -3588,10 +3669,19 @@ def _project_cover_asset(project: Project) -> Optional[QtGui.QPixmap]:
     return QtGui.QPixmap.fromImage(image)
 
 
-def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE) -> QtGui.QPixmap:
-    surface = _color_from_palette(project.palette, "surface", DEFAULT_PALETTE["surface"])
-    primary = _color_from_palette(project.palette, "primary", DEFAULT_PALETTE["primary"])
-    text_color = _color_from_palette(project.palette, "text", DEFAULT_PALETTE["text"])
+def render_project_cover(
+    project: Project,
+     size: QtCore.QSize = COVER_FULL_SIZE) -> QtGui.QPixmap:
+    surface = _color_from_palette(
+    project.palette,
+    "surface",
+     DEFAULT_PALETTE["surface"])
+    primary = _color_from_palette(
+    project.palette,
+    "primary",
+     DEFAULT_PALETTE["primary"])
+    text_color = _color_from_palette(
+    project.palette, "text", DEFAULT_PALETTE["text"])
     pixmap = QtGui.QPixmap(size)
     pixmap.fill(surface)
     painter = QtGui.QPainter(pixmap)
@@ -3599,11 +3689,19 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
     painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing)
     margin = int(min(size.width(), size.height()) * 0.06)
     hero_height = int(size.height() * 0.55)
-    hero_rect = QtCore.QRectF(margin, margin, size.width() - margin * 2, hero_height)
+    hero_rect = QtCore.QRectF(
+    margin,
+    margin,
+    size.width() -
+    margin *
+    2,
+     hero_height)
     hero_path = QtGui.QPainterPath()
     radius = min(hero_rect.width(), hero_rect.height()) * 0.06
     hero_path.addRoundedRect(hero_rect, radius, radius)
-    gradient = QtGui.QLinearGradient(hero_rect.topLeft(), hero_rect.bottomRight())
+    gradient = QtGui.QLinearGradient(
+    hero_rect.topLeft(),
+     hero_rect.bottomRight())
     grad_primary = QtGui.QColor(primary)
     grad_primary.setAlphaF(0.85)
     gradient.setColorAt(0.0, grad_primary)
@@ -3625,25 +3723,49 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
         text_width - content_margin,
         hero_rect.height() - content_margin * 2,
     )
-    heading_font = QtGui.QFont(_primary_font(project.fonts.get("heading", DEFAULT_FONTS["heading"]), "Poppins"))
+    heading_font = QtGui.QFont(
+    _primary_font(
+        project.fonts.get(
+            "heading",
+            DEFAULT_FONTS["heading"]),
+             "Poppins"))
     heading_font.setBold(True)
     heading_font.setPointSizeF(max(28.0, size.width() / 28))
-    eyebrow_font = QtGui.QFont(_primary_font(project.fonts.get("body", DEFAULT_FONTS["body"]), "Inter"))
+    eyebrow_font = QtGui.QFont(
+    _primary_font(
+        project.fonts.get(
+            "body",
+            DEFAULT_FONTS["body"]),
+             "Inter"))
     eyebrow_font.setPointSizeF(max(13.0, size.width() / 55))
-    eyebrow_font.setLetterSpacing(QtGui.QFont.SpacingType.PercentageSpacing, 108)
+    eyebrow_font.setLetterSpacing(
+    QtGui.QFont.SpacingType.PercentageSpacing, 108)
     eyebrow_font.setCapitalization(QtGui.QFont.Capitalization.AllUppercase)
-    body_font = QtGui.QFont(_primary_font(project.fonts.get("body", DEFAULT_FONTS["body"]), "Inter"))
+    body_font = QtGui.QFont(
+    _primary_font(
+        project.fonts.get(
+            "body",
+            DEFAULT_FONTS["body"]),
+             "Inter"))
     body_font.setPointSizeF(max(14.0, size.width() / 60))
 
     painter.save()
     painter.setPen(QtGui.QPen(primary))
     painter.setFont(eyebrow_font)
-    painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "Launch-ready")
+    painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft |
+                     Qt.AlignmentFlag.AlignTop, "Launch-ready")
 
     painter.setPen(QtGui.QPen(text_color))
     painter.setFont(heading_font)
-    title_rect = QtCore.QRectF(text_rect.left(), text_rect.top() + 32, text_rect.width(), text_rect.height())
-    painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, project.name.strip() or "Untitled")
+    title_rect = QtCore.QRectF(
+    text_rect.left(),
+    text_rect.top() + 32,
+    text_rect.width(),
+     text_rect.height())
+    painter.drawText(
+    title_rect,
+    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+     project.name.strip() or "Untitled")
 
     tagline = _extract_tagline(project)
     painter.setFont(body_font)
@@ -3653,21 +3775,34 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
         text_rect.width(),
         text_rect.height() - heading_font.pointSizeF() * 1.8,
     )
-    painter.drawText(tagline_rect, Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap, tagline)
+    painter.drawText(tagline_rect, Qt.AlignmentFlag.AlignLeft |
+                     Qt.TextFlag.TextWordWrap, tagline)
 
     chip_height = 36
     chip_spacing = 16
     chip_y = tagline_rect.top() + max(tagline_rect.height() * 0.4, 48)
-    chip_rect_primary = QtCore.QRectF(text_rect.left(), chip_y, 160, chip_height)
-    chip_rect_secondary = QtCore.QRectF(chip_rect_primary.right() + chip_spacing, chip_y, 150, chip_height)
+    chip_rect_primary = QtCore.QRectF(
+    text_rect.left(), chip_y, 160, chip_height)
+    chip_rect_secondary = QtCore.QRectF(
+    chip_rect_primary.right() +
+    chip_spacing,
+    chip_y,
+    150,
+     chip_height)
     cta_text_color = _contrast_text_for(primary)
 
-    def draw_chip(rect: QtCore.QRectF, bg: QtGui.QColor, fg: QtGui.QColor, label: str) -> None:
+    def draw_chip(
+    rect: QtCore.QRectF,
+    bg: QtGui.QColor,
+    fg: QtGui.QColor,
+     label: str) -> None:
         path = QtGui.QPainterPath()
         path.addRoundedRect(rect, chip_height / 2, chip_height / 2)
         painter.fillPath(path, bg)
-        painter.setPen(QtGui.QPen(QtGui.QColor(bg).darker(115) if fg == cta_text_color else fg))
-        painter.setFont(QtGui.QFont(body_font.family(), int(max(12.0, size.width() / 70))))
+        painter.setPen(QtGui.QPen(QtGui.QColor(bg).darker(115)
+                       if fg == cta_text_color else fg))
+        painter.setFont(QtGui.QFont(body_font.family(),
+                        int(max(12.0, size.width() / 70))))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
 
     draw_chip(chip_rect_primary, primary, cta_text_color, "Get started")
@@ -3692,7 +3827,10 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
         art_path = QtGui.QPainterPath()
         art_path.addRoundedRect(art_rect, 28, 28)
         painter.setClipPath(art_path)
-        scaled = image_pix.scaled(art_rect.size().toSize(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+        scaled = image_pix.scaled(
+    art_rect.size().toSize(),
+    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+     Qt.TransformationMode.SmoothTransformation)
         target = QtCore.QRectF(
             art_rect.center().x() - scaled.width() / 2,
             art_rect.center().y() - scaled.height() / 2,
@@ -3708,7 +3846,11 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
     cards_top = hero_rect.bottom() + margin * 0.6
     card_area_height = size.height() - cards_top - margin
     if card_area_height > 0:
-        cards_rect = QtCore.QRectF(hero_rect.left(), cards_top, hero_rect.width(), card_area_height)
+        cards_rect = QtCore.QRectF(
+    hero_rect.left(),
+    cards_top,
+    hero_rect.width(),
+     card_area_height)
         card_spacing = 20
         card_width = (cards_rect.width() - card_spacing * 2) / 3
         card_titles = _collect_card_titles(project)
@@ -3727,15 +3869,20 @@ def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE)
             painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 18)))
             painter.drawPath(card_path)
             painter.setPen(QtGui.QPen(text_color))
-            painter.setFont(QtGui.QFont(heading_font.family(), int(max(14.0, size.width() / 55))))
+            painter.setFont(QtGui.QFont(heading_font.family(),
+                            int(max(14.0, size.width() / 55))))
             heading_rect = QtCore.QRectF(
                 card_rect.left() + 20,
                 card_rect.top() + 18,
                 card_rect.width() - 40,
                 40,
             )
-            painter.drawText(heading_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, title)
-            painter.setFont(QtGui.QFont(body_font.family(), int(max(12.0, size.width() / 70))))
+            painter.drawText(
+    heading_rect,
+    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+     title)
+            painter.setFont(QtGui.QFont(body_font.family(),
+                            int(max(12.0, size.width() / 70))))
             body_rect = QtCore.QRectF(
                 heading_rect.left(),
                 heading_rect.bottom() + 12,
@@ -3773,12 +3920,16 @@ def _cover_base_key(project_path_or_temp: Optional[Path]) -> str:
     return f"{abs(hash(str(resolved))):x}"
 
 
-def save_cover_png(pixmap: QtGui.QPixmap, project_path_or_temp: Optional[Path]) -> Path:
+def save_cover_png(
+    pixmap: QtGui.QPixmap,
+     project_path_or_temp: Optional[Path]) -> Path:
     base_key = _cover_base_key(project_path_or_temp)
     cover_path = COVERS_DIR / f"{base_key}-cover.png"
     tile_path = PREVIEWS_DIR / f"{base_key}-tile.png"
     pixmap.save(str(cover_path), "PNG")
-    tile = pixmap.scaled(COVER_TILE_SIZE, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+    tile = pixmap.scaled(COVER_TILE_SIZE,
+    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+     Qt.TransformationMode.SmoothTransformation)
     tile.save(str(tile_path), "PNG")
     return cover_path
 
@@ -3788,7 +3939,9 @@ def cover_tile_path_from_cover(cover_path: Path) -> Path:
     return PREVIEWS_DIR / f"{base_key}-tile.png"
 
 
-def get_cover_or_thumbnail(project: Project, project_path: Optional[Path] = None) -> Optional[Path]:
+def get_cover_or_thumbnail(
+    project: Project,
+     project_path: Optional[Path] = None) -> Optional[Path]:
     if project.cover_path and Path(project.cover_path).exists():
         return Path(project.cover_path)
     if project.cover_tile_path and Path(project.cover_tile_path).exists():
@@ -3845,20 +3998,29 @@ def template_preview_html(
     fonts: Dict[str, str],
 ) -> str:
     spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
-    html = (spec.cover_html or DEFAULT_TEMPLATE_COVER_HTML).replace("{{SITE_NAME}}", project_name or spec.name)
+    html = (spec.cover_html or DEFAULT_TEMPLATE_COVER_HTML).replace(
+        "{{SITE_NAME}}", project_name or spec.name)
     css = DEFAULT_TEMPLATE_COVER_CSS + (spec.cover_css or "")
     primary = palette.get("primary", DEFAULT_PALETTE["primary"])
     surface = palette.get("surface", DEFAULT_PALETTE["surface"])
     text = palette.get("text", DEFAULT_PALETTE["text"])
     heading_font = fonts.get("heading", DEFAULT_FONTS["heading"])
     body_font = fonts.get("body", DEFAULT_FONTS["body"])
-    return f"""<!doctype html><html><head><meta charset='utf-8'><title>{spec.name} preview</title><style>:root {{ --color-primary: {primary}; --color-surface: {surface}; --color-text: {text}; --font-heading: {heading_font}; --font-body: {body_font}; }} {css}</style></head><body class='template-cover'>{html}</body></html>"""
+    return f"""<!doctype html><html><head><meta charset='utf-8'><title>{
+    spec.name} preview</title><style>:root {{ --color-primary: {primary}; --color-surface: {surface}; --color-text: {text}; --font-heading: {heading_font}; --font-body: {body_font}; }} {css}</style></head><body class='template-cover'>{html}</body></html>"""
 
 
-def preview_project_for_template(template_key: str, project_name: Optional[str] = None) -> Project:
+def preview_project_for_template(
+    template_key: str,
+     project_name: Optional[str] = None) -> Project:
     spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
     pages = [
-        Page(filename=filename, title=title, html=html.replace("{{SITE_NAME}}", project_name or spec.name))
+        Page(
+    filename=filename,
+    title=title,
+    html=html.replace(
+        "{{SITE_NAME}}",
+         project_name or spec.name))
         for filename, title, html in spec.pages[:1]
     ]
     palette = dict(spec.palette or DEFAULT_PALETTE)
@@ -3878,7 +4040,11 @@ _TEMPLATE_COVER_CACHE: Dict[str, QtGui.QPixmap] = {}
 _TEMPLATE_COVER_SIZE_CACHE: Dict[Tuple[str, int, int], QtGui.QPixmap] = {}
 
 
-def template_cover_pixmap(key: str, size: QtCore.QSize = QtCore.QSize(360, 200)) -> QtGui.QPixmap:
+def template_cover_pixmap(
+    key: str,
+    size: QtCore.QSize = QtCore.QSize(
+        360,
+         200)) -> QtGui.QPixmap:
     """Return a cached cover pixmap for template tiles and previews."""
 
     if size.isValid() is False or size.width() <= 0 or size.height() <= 0:
@@ -3892,7 +4058,8 @@ def template_cover_pixmap(key: str, size: QtCore.QSize = QtCore.QSize(360, 200))
     base = _TEMPLATE_COVER_CACHE.get(key)
     if base is None or base.isNull():
         definition = TEMPLATES.get(key)
-        fallback_name = definition.title if definition else PROJECT_TEMPLATES.get(key, PROJECT_TEMPLATES["starter"]).name
+        fallback_name = definition.title if definition else PROJECT_TEMPLATES.get(
+            key, PROJECT_TEMPLATES["starter"]).name
         project = preview_project_for_template(key, fallback_name)
         base = render_project_cover(project, COVER_FULL_SIZE)
         _TEMPLATE_COVER_CACHE[key] = base
@@ -3960,7 +4127,8 @@ def build_base_css(
     heading_font = fonts.get("heading", DEFAULT_FONTS["heading"])
     body_font = fonts.get("body", DEFAULT_FONTS["body"])
     radius_scale_str = f"{radius_scale:g}" if radius_scale else "1"
-    level = shadow_level if shadow_level in {"none", "sm", "md", "lg"} else "md"
+    level = shadow_level if shadow_level in {
+        "none", "sm", "md", "lg"} else "md"
     return f""":root {{
   --color-primary: {primary};
   --color-surface: {surface};
@@ -4054,7 +4222,8 @@ def migrate_project_v1_to_v2(data: Dict[str, object]) -> Dict[str, object]:
         name=str(data.get("name", "My Site")),
         pages=pages,
         css=str(data.get("css", "")),
-    output_dir=str(data.get("output_dir")) if data.get("output_dir") is not None else None,
+    output_dir=str(data.get("output_dir")) if data.get(
+        "output_dir") is not None else None,
         palette=dict(DEFAULT_PALETTE),
         fonts=dict(DEFAULT_FONTS),
         images=[],
@@ -4076,7 +4245,12 @@ def load_project(path: Path) -> MigrationResult:
 
 def save_project(path: Path, project: Project) -> None:
     payload = project.to_dict()
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(
+    json.dumps(
+        payload,
+        indent=2,
+        ensure_ascii=False),
+         encoding="utf-8")
 
 
 def render_site(project: Project, output_dir: Path) -> None:
@@ -4095,11 +4269,22 @@ def render_site(project: Project, output_dir: Path) -> None:
     css_source = project.css or ""
     css = ensure_block(css_source, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
     css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
-    css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(project.gradients))
-    css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(project.motion_pref))
+    css = ensure_block(
+    css,
+    GRADIENT_HELPERS_SENTINEL,
+    gradient_helpers_block(
+        project.gradients))
+    css = ensure_block(
+    css,
+    ANIM_HELPERS_SENTINEL,
+    animation_helpers_block(
+        project.motion_pref))
     extra_block = extract_css_block(css_source, TEMPLATE_EXTRA_SENTINEL)
     if extra_block:
-        css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
+        css = ensure_block(
+    css,
+    TEMPLATE_EXTRA_SENTINEL,
+     f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
     (css_dir / "style.css").write_text(css, encoding="utf-8")
     for asset in project.images:
         data = base64.b64decode(asset.data_base64.encode("ascii"))
@@ -4109,11 +4294,16 @@ def render_site(project: Project, output_dir: Path) -> None:
         rel_path: Optional[Path] = None
         if asset.mode == "local":
             rel_path = Path(asset.href)
-            if rel_path.is_absolute() or not rel_path.parts or rel_path.parts[0] != "assets":
+            if rel_path.is_absolute(
+            ) or not rel_path.parts or rel_path.parts[0] != "assets":
                 rel_path = Path("assets") / "vendor" / rel_path.name
             if not rel_path.name:
-                fallback_base = slugify(asset.original_url or asset.href or f"{asset.kind}-asset")
-                fallback_name = f"{fallback_base or 'external'}{'.css' if asset.kind == 'css' else '.js'}"
+                fallback_base = slugify(
+    asset.original_url or asset.href or f"{
+        asset.kind}-asset")
+                fallback_name = f"{
+    fallback_base or 'external'}{
+        '.css' if asset.kind == 'css' else '.js'}"
                 rel_path = Path("assets") / "vendor" / fallback_name
             href_value = rel_path.as_posix()
             if href_value != asset.href:
@@ -4166,10 +4356,13 @@ def render_site(project: Project, output_dir: Path) -> None:
             page_slug=slugify(Path(page.filename).stem),
             external_css=external_css_payload,
             external_js=external_js_payload,
-            color_primary=project.palette.get("primary", DEFAULT_PALETTE["primary"]),
-            color_surface=project.palette.get("surface", DEFAULT_PALETTE["surface"]),
+            color_primary=project.palette.get(
+    "primary", DEFAULT_PALETTE["primary"]),
+            color_surface=project.palette.get(
+    "surface", DEFAULT_PALETTE["surface"]),
             color_text=project.palette.get("text", DEFAULT_PALETTE["text"]),
-            heading_font=project.fonts.get("heading", DEFAULT_FONTS["heading"]),
+            heading_font=project.fonts.get(
+    "heading", DEFAULT_FONTS["heading"]),
             body_font=project.fonts.get("body", DEFAULT_FONTS["body"]),
         )
         (output_dir / page.filename).write_text(html, encoding="utf-8")
@@ -4207,9 +4400,13 @@ class RecentItem:
         return cls(
             path=str(data.get("path", "")),
             name=str(data.get("name", "Untitled")),
-            last_opened=str(data.get("last_opened", datetime.utcnow().isoformat())),
+            last_opened=str(
+    data.get(
+        "last_opened",
+         datetime.utcnow().isoformat())),
             pinned=bool(data.get("pinned", False)),
-            thumbnail=(str(data["thumbnail"]) if data.get("thumbnail") else None),
+            thumbnail=(str(data["thumbnail"])
+                       if data.get("thumbnail") else None),
             cover=(str(data["cover"]) if data.get("cover") else None),
         )
 
@@ -4246,7 +4443,11 @@ class RecentProjectsManager:
                 item.last_opened = now
                 self.save()
                 return
-        self._items.append(RecentItem(path=path_str, name=project.name, last_opened=now))
+        self._items.append(
+    RecentItem(
+        path=path_str,
+        name=project.name,
+         last_opened=now))
         self.save()
 
     def remove(self, path: str) -> None:
@@ -4284,7 +4485,8 @@ class RecentProjectsManager:
                 break
         self.save()
 
-    def set_cover(self, path: Path, cover_path: Path, *, tile_path: Optional[Path] = None) -> None:
+    def set_cover(self, path: Path, cover_path: Path, *,
+                  tile_path: Optional[Path] = None) -> None:
         for item in self._items:
             if item.path == str(path):
                 item.cover = str(cover_path)
@@ -4294,7 +4496,8 @@ class RecentProjectsManager:
         self.save()
 
 
-def write_project_thumbnail(project: Project, project_path: Optional[Path]) -> Optional[Path]:
+def write_project_thumbnail(project: Project,
+     project_path: Optional[Path]) -> Optional[Path]:
     base_reference: Optional[Path]
     if project_path is None and project.cover_path:
         base_reference = Path(project.cover_path)
@@ -4346,7 +4549,8 @@ AUTO_MAP = {
 
 
 class LargeToolButton(QtWidgets.QToolButton):
-    def __init__(self, text: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, text: str,
+                 parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
         self.setText(text)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -4358,7 +4562,8 @@ class LargeToolButton(QtWidgets.QToolButton):
 
 
 class TemplatePreviewDialog(QtWidgets.QDialog):
-    def __init__(self, title: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(self, title: str,
+                 parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
         ensure_app_icon(self)
         self.setWindowTitle(f"{title} preview")
@@ -4366,7 +4571,8 @@ class TemplatePreviewDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         self.view = QWebEngineView(self)
         layout.addWidget(self.view, 1)
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Close, parent=self)
+        buttons = QtWidgets.QDialogButtonBox(
+    QtWidgets.QDialogButtonBox.StandardButton.Close, parent=self)
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
@@ -4385,17 +4591,22 @@ class TemplateSelectionResult:
 
 
 class TemplateSelectDialog(QtWidgets.QDialog):
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None, templates: Dict[str, TemplateSpec] | None = None) -> None:
+    def __init__(self,
+    parent: Optional[QtWidgets.QWidget] = None,
+    templates: Dict[str,
+     TemplateSpec] | None = None) -> None:
         super().__init__(parent)
         ensure_app_icon(self)
         self.setWindowTitle("Start a new project")
         self.resize(1100, 720)
         self._templates = templates or PROJECT_TEMPLATES
-        self._template_order = [key for key in self._templates.keys() if key in PROJECT_TEMPLATES]
+        self._template_order = [
+    key for key in self._templates.keys() if key in PROJECT_TEMPLATES]
         if not self._template_order:
             self._template_order = ["starter"]
         self._template_cards: Dict[str, TemplateCard] = {}
-        default_key = "starter" if "starter" in self._template_order else self._template_order[0]
+        default_key = "starter" if "starter" in self._template_order else self._template_order[
+            0]
         self._selected_key = default_key
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -4439,7 +4650,8 @@ class TemplateSelectDialog(QtWidgets.QDialog):
         tiles_layout.addWidget(QtWidgets.QLabel("Templates"))
         cards_scroll = QtWidgets.QScrollArea(tiles_container)
         cards_scroll.setWidgetResizable(True)
-        cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cards_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         cards_widget = QtWidgets.QWidget(cards_scroll)
         cards_layout = QtWidgets.QVBoxLayout(cards_widget)
         cards_layout.setContentsMargins(0, 0, 0, 0)
@@ -4452,7 +4664,8 @@ class TemplateSelectDialog(QtWidgets.QDialog):
                     key=key,
                     title=spec.name,
                     description=spec.description,
-                    default_pages=[(filename, html) for filename, _, html in spec.pages],
+                    default_pages=[(filename, html)
+                                    for filename, _, html in spec.pages],
                     cover_html=spec.cover_html,
                     cover_css=spec.cover_css,
                 )
@@ -4504,12 +4717,19 @@ class TemplateSelectDialog(QtWidgets.QDialog):
 
     def _highlight_selected_card(self) -> None:
         for key, card in self._template_cards.items():
-            card.setStyleSheet("border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_key else "")
+            card.setStyleSheet(
+    "border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_key else "")
 
     def _apply_theme_palette(self, theme: str) -> None:
         palette = THEME_PRESETS.get(theme, DEFAULT_PALETTE)
-        self.primary_edit.setText(palette.get("primary", DEFAULT_PALETTE["primary"]))
-        self.surface_edit.setText(palette.get("surface", DEFAULT_PALETTE["surface"]))
+        self.primary_edit.setText(
+    palette.get(
+        "primary",
+         DEFAULT_PALETTE["primary"]))
+        self.surface_edit.setText(
+    palette.get(
+        "surface",
+         DEFAULT_PALETTE["surface"]))
         self.text_edit.setText(palette.get("text", DEFAULT_PALETTE["text"]))
         self._update_preview()
 
@@ -4519,9 +4739,12 @@ class TemplateSelectDialog(QtWidgets.QDialog):
             "surface": self.surface_edit.text().strip() or DEFAULT_PALETTE["surface"],
             "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
         }
-        fonts = {"heading": self.heading_combo.currentText(), "body": self.body_combo.currentText()}
+        fonts = {
+    "heading": self.heading_combo.currentText(),
+     "body": self.body_combo.currentText()}
         definition = TEMPLATES.get(self._selected_key)
-        fallback_title = definition.title if definition else self._templates.get(self._selected_key, PROJECT_TEMPLATES["starter"]).name
+        fallback_title = definition.title if definition else self._templates.get(
+            self._selected_key, PROJECT_TEMPLATES["starter"]).name
         name = self.name_edit.text().strip() or fallback_title
         html = template_preview_html(self._selected_key, name, palette, fonts)
         self.preview_view.setHtml(html)
@@ -4532,9 +4755,12 @@ class TemplateSelectDialog(QtWidgets.QDialog):
             "surface": self.surface_edit.text().strip() or DEFAULT_PALETTE["surface"],
             "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
         }
-        fonts = {"heading": self.heading_combo.currentText(), "body": self.body_combo.currentText()}
+        fonts = {
+    "heading": self.heading_combo.currentText(),
+     "body": self.body_combo.currentText()}
         definition = TEMPLATES.get(key)
-        fallback_title = definition.title if definition else self._templates.get(key, PROJECT_TEMPLATES["starter"]).name
+        fallback_title = definition.title if definition else self._templates.get(
+            key, PROJECT_TEMPLATES["starter"]).name
         name = self.name_edit.text().strip() or fallback_title
         html = template_preview_html(key, name, palette, fonts)
         dialog = TemplatePreviewDialog(fallback_title, self)
@@ -4549,9 +4775,12 @@ class TemplateSelectDialog(QtWidgets.QDialog):
             "surface": self.surface_edit.text().strip() or DEFAULT_PALETTE["surface"],
             "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
         }
-        fonts = {"heading": self.heading_combo.currentText(), "body": self.body_combo.currentText()}
+        fonts = {
+    "heading": self.heading_combo.currentText(),
+     "body": self.body_combo.currentText()}
         definition = TEMPLATES.get(self._selected_key)
-        fallback_title = definition.title if definition else self._templates.get(self._selected_key, PROJECT_TEMPLATES["starter"]).name
+        fallback_title = definition.title if definition else self._templates.get(
+            self._selected_key, PROJECT_TEMPLATES["starter"]).name
         project_name = self.name_edit.text().strip() or fallback_title
         return TemplateSelectionResult(
             template_key=self._selected_key,
@@ -4572,7 +4801,8 @@ class PageTemplateDialog(QtWidgets.QDialog):
         ensure_app_icon(self)
         self.setWindowTitle("Add Page")
         self._types = page_types or {}
-        self._section_entries: List[Tuple[QtWidgets.QCheckBox, Callable[[], str]]] = []
+        self._section_entries: List[Tuple[QtWidgets.QCheckBox, Callable[[], str]]] = [
+            ]
         self._auto_title = ""
         self._title_custom = False
         self._suppress_title_signal = False
@@ -4604,7 +4834,10 @@ class PageTemplateDialog(QtWidgets.QDialog):
     def _on_type_changed(self, page_type: str) -> None:
         base_title = page_type.replace("Page", "").strip() or "Page"
         current_text = self.title_edit.text().strip()
-        should_update = (not self._title_custom) or (not current_text) or (current_text == self._auto_title)
+        should_update = (
+    not self._title_custom) or (
+        not current_text) or (
+            current_text == self._auto_title)
         self._auto_title = base_title
         if should_update:
             self._suppress_title_signal = True
@@ -4694,7 +4927,9 @@ class TemplateCard(QtWidgets.QFrame):
         layout.addWidget(desc)
         layout.addStretch()
 
-        self.preview_button.clicked.connect(lambda: self.preview_requested.emit(self.template.key))
+        self.preview_button.clicked.connect(
+    lambda: self.preview_requested.emit(
+        self.template.key))
         self.update_preview_pixmap(preview_pixmap)
 
     def update_preview_pixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:
@@ -4703,13 +4938,28 @@ class TemplateCard(QtWidgets.QFrame):
             placeholder.fill(QtGui.QColor("#dbeafe"))
             painter = QtGui.QPainter(placeholder)
             painter.setPen(QtGui.QPen(QtGui.QColor("#1d4ed8")))
-            painter.drawRoundedRect(6, 6, placeholder.width() - 12, placeholder.height() - 12, 14, 14)
+            painter.drawRoundedRect(
+    6,
+    6,
+    placeholder.width() -
+    12,
+    placeholder.height() -
+    12,
+    14,
+     14)
             painter.setPen(QtGui.QColor("#1e293b"))
-            painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.template.title)
+            painter.drawText(
+    placeholder.rect(),
+    Qt.AlignmentFlag.AlignCenter,
+     self.template.title)
             painter.end()
             self.thumb.setPixmap(placeholder)
         else:
-            self.thumb.setPixmap(pixmap.scaled(self.thumb.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+            self.thumb.setPixmap(
+    pixmap.scaled(
+        self.thumb.size(),
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+         Qt.TransformationMode.SmoothTransformation))
 
     def enterEvent(self, event: QtGui.QEnterEvent) -> None:
           self.preview_button.setVisible(True)
@@ -4735,7 +4985,8 @@ class RecentTileList(QtWidgets.QListWidget):
         self.setMovement(QtWidgets.QListView.Movement.Static)
         self.setSpacing(18)
         self.setWordWrap(True)
-        self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionMode(
+    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.setIconSize(COVER_TILE_SIZE)
         self.setUniformItemSizes(False)
         self.setAlternatingRowColors(False)
@@ -4774,7 +5025,8 @@ class AssetListWidget(QtWidgets.QListWidget):
     def dropEvent(self, event: QtGui.QDropEvent) -> None:
         mime = event.mimeData()
         if mime is not None and mime.hasUrls():
-            paths = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()]
+            paths = [url.toLocalFile()
+                                     for url in mime.urls() if url.isLocalFile()]
             if paths:
                 self.filesDropped.emit(paths)
         else:
@@ -4792,19 +5044,25 @@ class GuidedPlanDialog(QtWidgets.QDialog):
         ensure_app_icon(self)
         self.setModal(True)
         layout = QtWidgets.QVBoxLayout(self)
-        intro = QtWidgets.QLabel("Answer a few quick questions and we'll pick a template, theme, and starter pages.")
+        intro = QtWidgets.QLabel(
+            "Answer a few quick questions and we'll pick a template, theme, and starter pages.")
         intro.setWordWrap(True)
         layout.addWidget(intro)
-        self.purpose = self._create_group("What are you making?", ["Landing", "Portfolio", "Resource", "Other"], layout)
+        self.purpose = self._create_group(
+    "What are you making?", [
+        "Landing", "Portfolio", "Resource", "Other"], layout)
         self.audience = self._create_group(
-            "Who is it for?", ["Customers", "Hiring managers", "Internal users", "Community"], layout
+            "Who is it for?", ["Customers", "Hiring managers",
+                "Internal users", "Community"], layout
         )
         self.goal = self._create_group(
-            "What's the goal?", ["Get signups", "Showcase work", "Provide help docs", "Share news"], layout
+            "What's the goal?", [
+    "Get signups", "Showcase work", "Provide help docs", "Share news"], layout
         )
         layout.addWidget(QtWidgets.QLabel("Short blurb (optional):"))
         self.blurb = QtWidgets.QPlainTextEdit(self)
-        self.blurb.setPlaceholderText("I need a simple site for my lawn service…")
+        self.blurb.setPlaceholderText(
+            "I need a simple site for my lawn service…")
         self.blurb.setFixedHeight(80)
         layout.addWidget(self.blurb)
         btn_box = QtWidgets.QDialogButtonBox(
@@ -4878,7 +5136,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.resize(720, 520)
         self._project_result: Optional[Project] = None
         self._path_result: Optional[Path] = None
-        self._selected_template_key = "starter" if "starter" in PROJECT_TEMPLATES else next(iter(PROJECT_TEMPLATES))
+        self._selected_template_key = "starter" if "starter" in PROJECT_TEMPLATES else next(
+            iter(PROJECT_TEMPLATES))
         self.template_cards: Dict[str, TemplateCard] = {}
         self.template_preview: Optional[QWebEngineView] = None
         self.template_caption: Optional[QtWidgets.QLabel] = None
@@ -4926,11 +5185,14 @@ class NewProjectWizard(QtWidgets.QDialog):
         layout = QtWidgets.QFormLayout(page)
         layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
         self.describe_purpose = QtWidgets.QComboBox(page)
-        self.describe_purpose.addItems(["Landing", "Portfolio", "Resource", "Other"])
+        self.describe_purpose.addItems(
+            ["Landing", "Portfolio", "Resource", "Other"])
         self.describe_audience = QtWidgets.QComboBox(page)
-        self.describe_audience.addItems(["Customers", "Hiring managers", "Internal users", "Community"])
+        self.describe_audience.addItems(
+            ["Customers", "Hiring managers", "Internal users", "Community"])
         self.describe_goal = QtWidgets.QComboBox(page)
-        self.describe_goal.addItems(["Get signups", "Showcase work", "Provide help docs", "Share news"])
+        self.describe_goal.addItems(
+            ["Get signups", "Showcase work", "Provide help docs", "Share news"])
         self.describe_blurb = QtWidgets.QPlainTextEdit(page)
         self.describe_blurb.setPlaceholderText("Short description or tagline")
         self.describe_blurb.setFixedHeight(80)
@@ -4948,7 +5210,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         layout.addRow("Project name", self.describe_name)
         layout.addRow("Save location", location_layout)
         layout.addRow("Tagline / blurb", self.describe_blurb)
-        helper = QtWidgets.QLabel("Tip: the location should be an empty folder where we'll keep exports and previews.")
+        helper = QtWidgets.QLabel(
+            "Tip: the location should be an empty folder where we'll keep exports and previews.")
         helper.setWordWrap(True)
         layout.addRow(helper)
         last = self.settings.get("last_save_dir", str(Path.home()))
@@ -4969,7 +5232,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         list_layout.addWidget(QtWidgets.QLabel("Choose a template"))
         cards_scroll = QtWidgets.QScrollArea(list_container)
         cards_scroll.setWidgetResizable(True)
-        cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cards_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         cards_widget = QtWidgets.QWidget(cards_scroll)
         cards_layout = QtWidgets.QVBoxLayout(cards_widget)
         cards_layout.setContentsMargins(0, 0, 0, 0)
@@ -5008,7 +5272,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         page = QtWidgets.QWidget(self)
         layout = QtWidgets.QVBoxLayout(page)
         layout.addWidget(QtWidgets.QLabel("Select pages"))
-        self.page_checks: List[Tuple[QtWidgets.QCheckBox, QtWidgets.QLineEdit]] = []
+        self.page_checks: List[Tuple[QtWidgets.QCheckBox,
+            QtWidgets.QLineEdit]] = []
         for title in ["Home", "About", "Projects", "Docs", "Contact", "Blog"]:
             box = QtWidgets.QCheckBox(title, page)
             edit = QtWidgets.QLineEdit(title, page)
@@ -5024,7 +5289,8 @@ class NewProjectWizard(QtWidgets.QDialog):
             layout.addLayout(row)
             self.page_checks.append((box, edit))
         layout.addStretch()
-        helper = QtWidgets.QLabel("Home is required. Rename other pages to match your voice.")
+        helper = QtWidgets.QLabel(
+            "Home is required. Rename other pages to match your voice.")
         helper.setWordWrap(True)
         layout.addWidget(helper)
         return page
@@ -5045,9 +5311,12 @@ class NewProjectWizard(QtWidgets.QDialog):
         helper = QtWidgets.QLabel("You can tweak colors later in the builder.")
         helper.setWordWrap(True)
         layout.addRow(helper)
-        self.theme_combo.currentTextChanged.connect(lambda _: self._update_template_preview())
-        self.heading_combo.currentTextChanged.connect(lambda _: self._update_template_preview())
-        self.body_combo.currentTextChanged.connect(lambda _: self._update_template_preview())
+        self.theme_combo.currentTextChanged.connect(
+            lambda _: self._update_template_preview())
+        self.heading_combo.currentTextChanged.connect(
+            lambda _: self._update_template_preview())
+        self.body_combo.currentTextChanged.connect(
+            lambda _: self._update_template_preview())
         return page
 
     def _build_review(self) -> QtWidgets.QWidget:
@@ -5057,7 +5326,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.review_text = QtWidgets.QTextEdit(page)
         self.review_text.setReadOnly(True)
         layout.addWidget(self.review_text, 1)
-        layout.addWidget(QtWidgets.QLabel("Click Create project to open the editor."))
+        layout.addWidget(QtWidgets.QLabel(
+            "Click Create project to open the editor."))
         return page
 
     def _highlight_template_cards(self) -> None:
@@ -5066,7 +5336,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         if self._selected_template_key not in self.template_cards:
             self._selected_template_key = next(iter(self.template_cards))
         for key, card in self.template_cards.items():
-            card.setStyleSheet("border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_template_key else "")
+            card.setStyleSheet(
+    "border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_template_key else "")
 
     def _current_palette(self) -> Dict[str, str]:
         theme_combo = getattr(self, "theme_combo", None)
@@ -5076,8 +5347,10 @@ class NewProjectWizard(QtWidgets.QDialog):
     def _current_fonts(self) -> Dict[str, str]:
         heading_combo = getattr(self, "heading_combo", None)
         body_combo = getattr(self, "body_combo", None)
-        heading = heading_combo.currentText() if heading_combo is not None else DEFAULT_FONTS["heading"]
-        body = body_combo.currentText() if body_combo is not None else DEFAULT_FONTS["body"]
+        heading = heading_combo.currentText(
+        ) if heading_combo is not None else DEFAULT_FONTS["heading"]
+        body = body_combo.currentText(
+        ) if body_combo is not None else DEFAULT_FONTS["body"]
         return {"heading": heading, "body": body}
 
     def _update_template_preview(self) -> None:
@@ -5089,12 +5362,19 @@ class NewProjectWizard(QtWidgets.QDialog):
         fonts = self._current_fonts()
         name_edit = getattr(self, "describe_name", None)
         project_name = name_edit.text().strip() if name_edit is not None else ""
-        spec = PROJECT_TEMPLATES.get(self._selected_template_key, PROJECT_TEMPLATES["starter"])
+        spec = PROJECT_TEMPLATES.get(
+    self._selected_template_key,
+     PROJECT_TEMPLATES["starter"])
         display_name = project_name or spec.name
-        html = template_preview_html(self._selected_template_key, display_name, palette, fonts)
+        html = template_preview_html(
+    self._selected_template_key,
+    display_name,
+    palette,
+     fonts)
         self.template_preview.setHtml(html)
         if self.template_caption is not None:
-            self.template_caption.setText(f"<b>{spec.name}</b> — {spec.description}")
+            self.template_caption.setText(
+                f"<b>{spec.name}</b> — {spec.description}")
 
     def _on_template_card_clicked(self, key: str) -> None:
         self._selected_template_key = key
@@ -5109,7 +5389,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         title = definition.title if definition else spec.name
         name_edit = getattr(self, "describe_name", None)
         display_name = name_edit.text().strip() if name_edit is not None else ""
-        html = template_preview_html(key, display_name or title, palette, fonts)
+        html = template_preview_html(
+    key, display_name or title, palette, fonts)
         dialog = TemplatePreviewDialog(title, self)
         dialog.set_preview_html(html)
         dialog.exec()
@@ -5175,12 +5456,14 @@ class NewProjectWizard(QtWidgets.QDialog):
         name = self.describe_name.text().strip()
         if not name:
             if validate:
-                QtWidgets.QMessageBox.warning(self, "Missing name", "Please provide a project name.")
+                QtWidgets.QMessageBox.warning(
+    self, "Missing name", "Please provide a project name.")
             return None, None
         location = self.describe_location.text().strip()
         if not location:
             if validate:
-                QtWidgets.QMessageBox.warning(self, "Missing location", "Choose where to save the project.")
+                QtWidgets.QMessageBox.warning(
+    self, "Missing location", "Choose where to save the project.")
             return None, None
         template_key = self._selected_template_key or "starter"
         if template_key not in PROJECT_TEMPLATES:
@@ -5213,11 +5496,16 @@ class NewProjectWizard(QtWidgets.QDialog):
         )
         project.theme_preset = theme
         project.output_dir = location
-        path = Path(location) / f"{re.sub(r'[^a-zA-Z0-9_-]+', '-', name.lower()).strip('-') or 'site'}.siteproj"
+        path = Path(location) / f"{
+    re.sub(
+        r'[^a-zA-Z0-9_-]+',
+        '-',
+         name.lower()).strip('-') or 'site'}.siteproj"
         return project, path
 
     def project_result(self) -> Tuple[Optional[Project], Optional[Path]]:
         return self._project_result, self._path_result
+
 
 def create_project_from_template(
     name: str,
@@ -5232,7 +5520,8 @@ def create_project_from_template(
     palette_final = dict(spec.palette or palette)
     fonts_final = dict(spec.fonts or fonts)
     gradients = dict(spec.gradients or DEFAULT_GRADIENT)
-    radius_scale = float(spec.radius_scale) if spec.radius_scale is not None else 1.0
+    radius_scale = float(
+    spec.radius_scale) if spec.radius_scale is not None else 1.0
     shadow_level = spec.shadow_level if spec.shadow_level in SHADOW_LEVELS else "md"
 
     pages: List[Page] = []
@@ -5262,17 +5551,30 @@ def create_project_from_template(
             filename = f"{slug}-{counter}.html"
             counter += 1
         body = (
-            f"<section class=\"section\">\n  <h1>{page_titles.get(title, title)}</h1>\n"
+            f"<section class=\"section\">\n  <h1>{
+    page_titles.get(
+        title, title)}</h1>\n"
             "  <p>Write something helpful here.</p>\n</section>"
         )
-        pages.append(Page(filename=filename, title=page_titles.get(title, title), html=body))
+        pages.append(
+    Page(
+        filename=filename,
+        title=page_titles.get(
+            title,
+            title),
+             html=body))
         existing_filenames.add(filename)
 
-    css = generate_base_css(palette_final, fonts_final, radius_scale, shadow_level)
+    css = generate_base_css(
+    palette_final,
+    fonts_final,
+    radius_scale,
+     shadow_level)
     if spec.include_helpers:
         css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
     css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
-    css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(gradients))
+    css = ensure_block(css, GRADIENT_HELPERS_SENTINEL,
+                       gradient_helpers_block(gradients))
     css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block())
     if spec.extra_css.strip():
         css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
@@ -5289,7 +5591,8 @@ def create_project_from_template(
         radius_scale=radius_scale,
         shadow_level=shadow_level,
     )
-    project.theme_preset = next((key for key, val in THEME_PRESETS.items() if val == palette_final), "Custom")
+    project.theme_preset = next(
+    (key for key, val in THEME_PRESETS.items() if val == palette_final), "Custom")
     return project
 
 
@@ -5310,12 +5613,18 @@ def placeholder_images() -> List[AssetImage]:
         pix.save(buffer, "PNG")
         data = base64.b64encode(buffer.data().data()).decode("ascii")
         images.append(
-            AssetImage(name=name, data_base64=data, width=pix.width(), height=pix.height(), mime="image/png")
+            AssetImage(
+    name=name,
+    data_base64=data,
+    width=pix.width(),
+    height=pix.height(),
+     mime="image/png")
         )
     return images
 
 
-def generate_svg_placeholder(width: int, height: int, palette: Dict[str, str]) -> str:
+def generate_svg_placeholder(
+    width: int, height: int, palette: Dict[str, str]) -> str:
     primary = palette.get("primary", DEFAULT_PALETTE["primary"])
     surface = palette.get("surface", DEFAULT_PALETTE["surface"])
     text = palette.get("text", DEFAULT_PALETTE["text"])
@@ -5323,11 +5632,61 @@ def generate_svg_placeholder(width: int, height: int, palette: Dict[str, str]) -
         f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>"
         f"<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
         f"<stop offset='0%' stop-color='{primary}' stop-opacity='0.85'/><stop offset='100%' stop-color='{primary}' stop-opacity='0.35'/></linearGradient></defs>"
-        f"<rect width='100%' height='100%' fill='{surface}'/><rect x='{width*0.05}' y='{height*0.1}' rx='{width*0.04}' ry='{width*0.04}' width='{width*0.9}' height='{height*0.8}' fill='url(#g)' opacity='0.65'/>"
-        f"<rect x='{width*0.08}' y='{height*0.18}' width='{width*0.35}' height='{height*0.05}' rx='{height*0.02}' fill='{primary}' opacity='0.35'/>"
-        f"<rect x='{width*0.08}' y='{height*0.28}' width='{width*0.5}' height='{height*0.06}' rx='{height*0.02}' fill='{primary}' opacity='0.28'/>"
-        f"<rect x='{width*0.08}' y='{height*0.38}' width='{width*0.45}' height='{height*0.05}' rx='{height*0.02}' fill='{primary}' opacity='0.18'/>"
-        f"<text x='{width/2}' y='{height*0.65}' text-anchor='middle' fill='{text}' font-family='Inter, sans-serif' font-size='{max(18, width*0.04)}' font-weight='600' opacity='0.75'>Hero placeholder {width}×{height}</text>"
+        f"<rect width='100%' height='100%' fill='{surface}'/><rect x='{
+    width *
+    0.05}' y='{
+        height *
+        0.1}' rx='{
+            width *
+            0.04}' ry='{
+                width *
+                0.04}' width='{
+                    width *
+                    0.9}' height='{
+                        height *
+                         0.8}' fill='url(#g)' opacity='0.65'/>"
+        f"<rect x='{
+    width *
+    0.08}' y='{
+        height *
+        0.18}' width='{
+            width *
+            0.35}' height='{
+                height *
+                0.05}' rx='{
+                    height *
+                     0.02}' fill='{primary}' opacity='0.35'/>"
+        f"<rect x='{
+    width *
+    0.08}' y='{
+        height *
+        0.28}' width='{
+            width *
+            0.5}' height='{
+                height *
+                0.06}' rx='{
+                    height *
+                     0.02}' fill='{primary}' opacity='0.28'/>"
+        f"<rect x='{
+    width *
+    0.08}' y='{
+        height *
+        0.38}' width='{
+            width *
+            0.45}' height='{
+                height *
+                0.05}' rx='{
+                    height *
+                     0.02}' fill='{primary}' opacity='0.18'/>"
+        f"<text x='{
+    width /
+    2}' y='{
+        height *
+        0.65}' text-anchor='middle' fill='{text}' font-family='Inter, sans-serif' font-size='{
+            max(
+                18,
+                width *
+                 0.04)}' font-weight='600' opacity='0.75'>Hero placeholder {width}×{height}</text>"
         "</svg>"
     )
 
@@ -5369,7 +5728,8 @@ class StartWindow(QtWidgets.QMainWindow):
         self.nav_list = QtWidgets.QListWidget(central)
         self.nav_list.setFixedWidth(220)
         self.nav_list.setSpacing(4)
-        self.nav_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.nav_list.setSelectionMode(
+    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         for label in ["Create New", "Open", "Import", "Recent", "Learn"]:
             item = QtWidgets.QListWidgetItem(label)
             font = item.font()
@@ -5442,7 +5802,8 @@ class StartWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(40, 32, 40, 32)
         layout.setSpacing(24)
 
-        title = QtWidgets.QLabel("<h1>Welcome! Let's build something beautiful.</h1>")
+        title = QtWidgets.QLabel(
+            "<h1>Welcome! Let's build something beautiful.</h1>")
         subtitle = QtWidgets.QLabel(
             "Pick a template, tune the theme, and jump into the builder with polished starter content."
         )
@@ -5465,7 +5826,11 @@ class StartWindow(QtWidgets.QMainWindow):
         purpose_row.addStretch()
         layout.addLayout(purpose_row)
         for btn, option in radio_buttons:
-            btn.toggled.connect(lambda checked, text=option: self._quick_purpose_changed(text, checked))
+            btn.toggled.connect(
+    lambda checked,
+    text=option: self._quick_purpose_changed(
+        text,
+         checked))
 
         form_group = QtWidgets.QGroupBox("Project details", content)
         form = QtWidgets.QFormLayout(form_group)
@@ -5473,8 +5838,12 @@ class StartWindow(QtWidgets.QMainWindow):
         self.create_name.setPlaceholderText("Project name")
         self.create_name.setText("My Site")
         self.create_location = QtWidgets.QLineEdit(form_group)
-        self.create_location.setPlaceholderText("Where to save the .siteproj file")
-        self.create_location.setText(self.settings.get("last_save_dir", str(Path.home())))
+        self.create_location.setPlaceholderText(
+            "Where to save the .siteproj file")
+        self.create_location.setText(
+    self.settings.get(
+        "last_save_dir", str(
+            Path.home())))
         browse = QtWidgets.QPushButton("Browse…", form_group)
         browse.clicked.connect(self._browse_save_location)
         location_layout = QtWidgets.QHBoxLayout()
@@ -5498,8 +5867,10 @@ class StartWindow(QtWidgets.QMainWindow):
         layout.addWidget(QtWidgets.QLabel("<h2>Template gallery</h2>"))
         gallery_scroll = QtWidgets.QScrollArea(content)
         gallery_scroll.setWidgetResizable(True)
-        gallery_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        gallery_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        gallery_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        gallery_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         gallery_widget = QtWidgets.QWidget(gallery_scroll)
         self.template_gallery_layout = QtWidgets.QHBoxLayout(gallery_widget)
         self.template_gallery_layout.setContentsMargins(0, 0, 0, 0)
@@ -5516,7 +5887,8 @@ class StartWindow(QtWidgets.QMainWindow):
         gallery_scroll.setWidget(gallery_widget)
         layout.addWidget(gallery_scroll)
 
-        self.template_caption = QtWidgets.QLabel("Select a template to see details and update the live preview.")
+        self.template_caption = QtWidgets.QLabel(
+            "Select a template to see details and update the live preview.")
         self.template_caption.setWordWrap(True)
         layout.addWidget(self.template_caption)
 
@@ -5524,7 +5896,15 @@ class StartWindow(QtWidgets.QMainWindow):
         pages_layout = QtWidgets.QGridLayout(pages_group)
         self._page_checks.clear()
         self._page_edits.clear()
-        labels = ["About", "Projects", "Docs", "Contact", "Blog", "Pricing", "FAQ", "Updates"]
+        labels = [
+    "About",
+    "Projects",
+    "Docs",
+    "Contact",
+    "Blog",
+    "Pricing",
+    "FAQ",
+     "Updates"]
         for idx, label in enumerate(labels):
             check = QtWidgets.QCheckBox(label, pages_group)
             if label in ("About", "Contact"):
@@ -5567,7 +5947,8 @@ class StartWindow(QtWidgets.QMainWindow):
         self.create_summary.setWordWrap(True)
         layout.addWidget(self.create_summary)
 
-        self.btn_create_project = QtWidgets.QPushButton("Create project", content)
+        self.btn_create_project = QtWidgets.QPushButton(
+            "Create project", content)
         self.btn_create_project.setMinimumHeight(44)
         self.btn_create_project.clicked.connect(self._create_project)
         layout.addWidget(self.btn_create_project)
@@ -5588,13 +5969,18 @@ class StartWindow(QtWidgets.QMainWindow):
 
     def _show_template_preview(self, key: str) -> None:
         spec = PROJECT_TEMPLATES.get(key, PROJECT_TEMPLATES["starter"])
-        theme = self.create_theme.currentText() if hasattr(self, "create_theme") else "Calm Sky"
-        palette = dict(THEME_PRESETS.get(theme, spec.palette or DEFAULT_PALETTE))
+        theme = self.create_theme.currentText() if hasattr(
+            self, "create_theme") else "Calm Sky"
+        palette = dict(
+    THEME_PRESETS.get(
+        theme,
+         spec.palette or DEFAULT_PALETTE))
         fonts = {
             "heading": self.heading_font_combo.currentText() if hasattr(self, "heading_font_combo") else DEFAULT_FONTS["heading"],
             "body": self.body_font_combo.currentText() if hasattr(self, "body_font_combo") else DEFAULT_FONTS["body"],
         }
-        name = self.create_name.text().strip() if hasattr(self, "create_name") else spec.name
+        name = self.create_name.text().strip() if hasattr(
+            self, "create_name") else spec.name
         html = template_preview_html(key, name or spec.name, palette, fonts)
         dialog = TemplatePreviewDialog(TEMPLATES[key].title, self)
         dialog.set_preview_html(html)
@@ -5606,7 +5992,8 @@ class StartWindow(QtWidgets.QMainWindow):
             return
         path = Path(path_str)
         if not path.exists():
-            QtWidgets.QMessageBox.warning(self, "Missing", "This project file is missing. Removing from list.")
+            QtWidgets.QMessageBox.warning(
+    self, "Missing", "This project file is missing. Removing from list.")
             self.recents.remove(path_str)
             self.refresh_recents()
             return
@@ -5644,7 +6031,8 @@ class StartWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(page)
         layout.setContentsMargins(40, 32, 40, 32)
         layout.addWidget(QtWidgets.QLabel("<h2>Import an older project</h2>"))
-        info = QtWidgets.QLabel("Import Webineer v1 projects. We'll upgrade them safely to the new format.")
+        info = QtWidgets.QLabel(
+            "Import Webineer v1 projects. We'll upgrade them safely to the new format.")
         info.setWordWrap(True)
         layout.addWidget(info)
         self.import_path = QtWidgets.QLineEdit(page)
@@ -5660,7 +6048,8 @@ class StartWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.btn_import)
         self.import_summary = QtWidgets.QTextEdit(page)
         self.import_summary.setReadOnly(True)
-        self.import_summary.setPlaceholderText("Migration summary will appear here.")
+        self.import_summary.setPlaceholderText(
+            "Migration summary will appear here.")
         layout.addWidget(self.import_summary, 1)
         return self._wrap_scroll(page)
 
@@ -5672,10 +6061,13 @@ class StartWindow(QtWidgets.QMainWindow):
         layout.addWidget(header)
         self.recent_list = QtWidgets.QListWidget(page)
         self.recent_list.setIconSize(QtCore.QSize(120, 74))
-        self.recent_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.recent_list.setSelectionMode(
+    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.recent_list.itemDoubleClicked.connect(self._open_recent_item)
-        self.recent_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.recent_list.customContextMenuRequested.connect(self._recent_context_menu)
+        self.recent_list.setContextMenuPolicy(
+    Qt.ContextMenuPolicy.CustomContextMenu)
+        self.recent_list.customContextMenuRequested.connect(
+            self._recent_context_menu)
         layout.addWidget(self.recent_list, 1)
         purge_btn = QtWidgets.QPushButton("Clean up missing")
         purge_btn.clicked.connect(self._purge_missing)
@@ -5711,13 +6103,17 @@ class StartWindow(QtWidgets.QMainWindow):
         self._selected_template = key
         for tmpl_key, card in self.template_cards.items():
             if tmpl_key == key:
-                card.setStyleSheet("border: 2px solid #2563eb; border-radius: 12px;")
+                card.setStyleSheet(
+                    "border: 2px solid #2563eb; border-radius: 12px;")
             else:
                 card.setStyleSheet("")
         template = TEMPLATES[key]
         if hasattr(self, "template_caption"):
-            self.template_caption.setText(f"<b>{template.title}</b> — {template.description}")
-        self.status_bar.showMessage(f"Template set to {TEMPLATES[key].title}", 4000)
+            self.template_caption.setText(
+                f"<b>{template.title}</b> — {template.description}")
+        self.status_bar.showMessage(
+    f"Template set to {
+        TEMPLATES[key].title}", 4000)
 
     def _browse_save_location(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(
@@ -5789,14 +6185,19 @@ class StartWindow(QtWidgets.QMainWindow):
     def _create_project(self) -> None:
         name = self.create_name.text().strip()
         if not name:
-            QtWidgets.QMessageBox.warning(self, "Name required", "Please enter a project name.")
+            QtWidgets.QMessageBox.warning(
+    self, "Name required", "Please enter a project name.")
             return
         location = self.create_location.text().strip()
         if not location:
-            QtWidgets.QMessageBox.warning(self, "Choose location", "Select where to save the project file.")
+            QtWidgets.QMessageBox.warning(
+    self, "Choose location", "Select where to save the project file.")
             return
         selected, titles = self._collect_pages()
-        palette = dict(THEME_PRESETS.get(self.create_theme.currentText(), DEFAULT_PALETTE))
+        palette = dict(
+    THEME_PRESETS.get(
+        self.create_theme.currentText(),
+         DEFAULT_PALETTE))
         fonts = {
             "heading": self.heading_font_combo.currentText(),
             "body": self.body_font_combo.currentText(),
@@ -5812,21 +6213,32 @@ class StartWindow(QtWidgets.QMainWindow):
         project.output_dir = location
         save_dir = Path(location)
         save_dir.mkdir(parents=True, exist_ok=True)
-        slug = re.sub(r"[^a-zA-Z0-9_-]+", "-", name.lower()).strip("-") or "site"
+        slug = re.sub(
+    r"[^a-zA-Z0-9_-]+",
+    "-",
+     name.lower()).strip("-") or "site"
         project_path = save_dir / f"{slug}.siteproj"
         if project_path.exists():
-            if QtWidgets.QMessageBox.question(self, "Overwrite?", f"{project_path.name} already exists. Replace it?") != QtWidgets.QMessageBox.StandardButton.Yes:
+            if QtWidgets.QMessageBox.question(
+    self, "Overwrite?", f"{
+        project_path.name} already exists. Replace it?") != QtWidgets.QMessageBox.StandardButton.Yes:
                 return
         try:
             save_project(project_path, project)
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Could not save project:\n{exc}")
+            QtWidgets.QMessageBox.critical(
+    self, "Error", f"Could not save project:\n{exc}")
             return
         self.recents.add_or_bump(project_path, project)
         thumb = write_project_thumbnail(project, project_path)
-        tile_path = Path(project.cover_tile_path) if project.cover_tile_path else thumb
+        tile_path = Path(
+    project.cover_tile_path) if project.cover_tile_path else thumb
         if project.cover_path:
-            self.recents.set_cover(project_path, Path(project.cover_path), tile_path=tile_path)
+            self.recents.set_cover(
+    project_path,
+    Path(
+        project.cover_path),
+         tile_path=tile_path)
         elif tile_path:
             self.recents.set_thumbnail(project_path, tile_path)
         self.project_opened.emit(project, project_path)
@@ -5871,7 +6283,8 @@ class StartWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Import failed", str(exc))
             return
         if result.migrated:
-            self.import_summary.setPlainText("Upgraded to Webineer v2. You're all set!")
+            self.import_summary.setPlainText(
+                "Upgraded to Webineer v2. You're all set!")
             try:
                 save_project(project_path, result.project)
             except Exception:
@@ -5883,16 +6296,19 @@ class StartWindow(QtWidgets.QMainWindow):
 
     def _open_project_from_path(self, path: Path) -> None:
         if not path.exists():
-            QtWidgets.QMessageBox.warning(self, "Not found", "That project file no longer exists.")
+            QtWidgets.QMessageBox.warning(
+    self, "Not found", "That project file no longer exists.")
             return
         try:
             result = load_project(path)
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Couldn't open project:\n{exc}")
+            QtWidgets.QMessageBox.critical(
+    self, "Error", f"Couldn't open project:\n{exc}")
             return
         self.settings.set("last_open_dir", str(path.parent))
         if result.migrated:
-            QtWidgets.QMessageBox.information(self, "Upgraded", "We upgraded this project to the latest format.")
+            QtWidgets.QMessageBox.information(
+    self, "Upgraded", "We upgraded this project to the latest format.")
             try:
                 save_project(path, result.project)
             except Exception:
@@ -5915,7 +6331,8 @@ class StartWindow(QtWidgets.QMainWindow):
                 if icon_path and Path(icon_path).exists():
                     tile.setIcon(QtGui.QIcon(icon_path))
                 else:
-                    fallback = self._template_preview_pixmap(self._selected_template)
+                    fallback = self._template_preview_pixmap(
+                        self._selected_template)
                     tile.setIcon(QtGui.QIcon(fallback))
                 tile.setData(Qt.ItemDataRole.AccessibleTextRole, display)
                 self.recent_tiles.addItem(tile)
@@ -5937,7 +6354,8 @@ class StartWindow(QtWidgets.QMainWindow):
     def _open_recent_item(self, item: QtWidgets.QListWidgetItem) -> None:
         path = Path(str(item.data(Qt.ItemDataRole.UserRole)))
         if not path.exists():
-            QtWidgets.QMessageBox.warning(self, "Missing", "This project file is missing. Removing from list.")
+            QtWidgets.QMessageBox.warning(
+    self, "Missing", "This project file is missing. Removing from list.")
             self.recents.remove(str(path))
             self.refresh_recents()
             return
@@ -5957,7 +6375,8 @@ class StartWindow(QtWidgets.QMainWindow):
         if action == act_open:
             self._open_project_from_path(Path(path_str))
         elif action == act_folder:
-            QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(path_str).parent)))
+            QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl.fromLocalFile(str(Path(path_str).parent)))
         elif action == act_pin:
             currently_pinned = "📌" in item.toolTip()
             self.recents.set_pinned(path_str, not currently_pinned)
@@ -6035,9 +6454,12 @@ class MainWindow(QtWidgets.QMainWindow):
         box.setWindowTitle("Unsaved changes")
         box.setText(f"Save changes to “{name}” before {action_label}?")
         box.setInformativeText("If you don’t save, your changes will be lost.")
-        save_btn = box.addButton("Save", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
-        discard_btn = box.addButton("Don’t Save", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
-        cancel_btn = box.addButton("Cancel", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        save_btn = box.addButton(
+    "Save", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton(
+    "Don’t Save", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        cancel_btn = box.addButton(
+    "Cancel", QtWidgets.QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(save_btn)
         box.exec()
 
@@ -6076,7 +6498,8 @@ class MainWindow(QtWidgets.QMainWindow):
         left_layout.addLayout(header)
 
         self.pages_list = QtWidgets.QListWidget(left)
-        self.pages_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.pages_list.setSelectionMode(
+    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         left_layout.addWidget(self.pages_list, 1)
 
         # Center tabs
@@ -6084,7 +6507,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab_editors.setDocumentMode(True)
         self.html_editor = QtWidgets.QPlainTextEdit(self.tab_editors)
         self.html_editor.setPlaceholderText("Write HTML for the current page.")
-        font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.SystemFont.FixedFont)
+        font = QtGui.QFontDatabase.systemFont(
+    QtGui.QFontDatabase.SystemFont.FixedFont)
         font.setPointSize(11)
         self.html_editor.setFont(font)
         self.css_editor = QtWidgets.QPlainTextEdit(self.tab_editors)
@@ -6125,14 +6549,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         theme_group = QtWidgets.QGroupBox("Theme & Palette", tab)
         theme_layout = QtWidgets.QFormLayout(theme_group)
-        theme_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        theme_layout.setFieldGrowthPolicy(
+    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.design_theme_combo = QtWidgets.QComboBox(theme_group)
-        self.design_theme_combo.addItems(list(THEME_PRESETS.keys()) + ["Custom"])
-        self.design_theme_combo.setToolTip("Try curated palettes and fonts to jump-start your design.")
+        self.design_theme_combo.addItems(
+            list(THEME_PRESETS.keys()) + ["Custom"])
+        self.design_theme_combo.setToolTip(
+            "Try curated palettes and fonts to jump-start your design.")
         theme_layout.addRow("Try a theme", self.design_theme_combo)
 
-        def color_field(line_edit: QtWidgets.QLineEdit, swatch: QtWidgets.QLabel) -> QtWidgets.QWidget:
+        def color_field(line_edit: QtWidgets.QLineEdit,
+     swatch: QtWidgets.QLabel) -> QtWidgets.QWidget:
             widget = QtWidgets.QWidget(theme_group)
             row = QtWidgets.QHBoxLayout(widget)
             row.setContentsMargins(0, 0, 0, 0)
@@ -6146,36 +6574,55 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.design_primary = QtWidgets.QLineEdit(theme_group)
         self.design_primary.setPlaceholderText("#2563eb")
-        self.design_primary.setToolTip("Accent color used for buttons and highlights.")
+        self.design_primary.setToolTip(
+            "Accent color used for buttons and highlights.")
         self.primary_swatch = QtWidgets.QLabel(theme_group)
-        theme_layout.addRow("Primary color", color_field(self.design_primary, self.primary_swatch))
+        theme_layout.addRow(
+    "Primary color",
+    color_field(
+        self.design_primary,
+         self.primary_swatch))
 
         self.design_surface = QtWidgets.QLineEdit(theme_group)
         self.design_surface.setPlaceholderText("#f8fafc")
-        self.design_surface.setToolTip("Background color for sections and cards.")
+        self.design_surface.setToolTip(
+            "Background color for sections and cards.")
         self.surface_swatch = QtWidgets.QLabel(theme_group)
-        theme_layout.addRow("Surface color", color_field(self.design_surface, self.surface_swatch))
+        theme_layout.addRow(
+    "Surface color",
+    color_field(
+        self.design_surface,
+         self.surface_swatch))
 
         self.design_text = QtWidgets.QLineEdit(theme_group)
         self.design_text.setPlaceholderText("#0f172a")
-        self.design_text.setToolTip("Main text color for paragraphs and headings.")
+        self.design_text.setToolTip(
+            "Main text color for paragraphs and headings.")
         self.text_swatch = QtWidgets.QLabel(theme_group)
-        theme_layout.addRow("Text color", color_field(self.design_text, self.text_swatch))
+        theme_layout.addRow(
+    "Text color",
+    color_field(
+        self.design_text,
+         self.text_swatch))
 
         self.design_heading_font = QtWidgets.QComboBox(theme_group)
         self.design_heading_font.addItems(FONT_STACKS)
-        self.design_heading_font.setToolTip("Font used for headings and large titles.")
+        self.design_heading_font.setToolTip(
+            "Font used for headings and large titles.")
         theme_layout.addRow("Heading font", self.design_heading_font)
 
         self.design_body_font = QtWidgets.QComboBox(theme_group)
         self.design_body_font.addItems(FONT_STACKS)
-        self.design_body_font.setToolTip("Font used for body copy and long-form text.")
+        self.design_body_font.setToolTip(
+            "Font used for body copy and long-form text.")
         theme_layout.addRow("Body font", self.design_body_font)
 
         button_row = QtWidgets.QHBoxLayout()
-        self.btn_apply_theme = QtWidgets.QPushButton("Apply theme", theme_group)
+        self.btn_apply_theme = QtWidgets.QPushButton(
+            "Apply theme", theme_group)
         self.btn_apply_theme.setMinimumHeight(40)
-        self.btn_add_helpers = QtWidgets.QPushButton("Add CSS helpers", theme_group)
+        self.btn_add_helpers = QtWidgets.QPushButton(
+            "Add CSS helpers", theme_group)
         self.btn_add_helpers.setMinimumHeight(40)
         button_row.addWidget(self.btn_apply_theme)
         button_row.addWidget(self.btn_add_helpers)
@@ -6185,23 +6632,28 @@ class MainWindow(QtWidgets.QMainWindow):
 
         gradient_group = QtWidgets.QGroupBox("Gradients", tab)
         gradient_layout = QtWidgets.QFormLayout(gradient_group)
-        gradient_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        gradient_layout.setFieldGrowthPolicy(
+    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.gradient_from = QtWidgets.QLineEdit(gradient_group)
         self.gradient_from.setPlaceholderText(DEFAULT_GRADIENT["from"])
-        self.gradient_from.setToolTip("Start color for the gradient background helper.")
+        self.gradient_from.setToolTip(
+            "Start color for the gradient background helper.")
         gradient_layout.addRow("From", self.gradient_from)
 
         self.gradient_to = QtWidgets.QLineEdit(gradient_group)
         self.gradient_to.setPlaceholderText(DEFAULT_GRADIENT["to"])
-        self.gradient_to.setToolTip("End color for the gradient background helper.")
+        self.gradient_to.setToolTip(
+            "End color for the gradient background helper.")
         gradient_layout.addRow("To", self.gradient_to)
 
         self.gradient_angle_combo = QtWidgets.QComboBox(gradient_group)
         self.gradient_angle_combo.addItems(GRADIENT_ANGLES)
         self.gradient_angle_combo.setEditable(True)
-        self.gradient_angle_combo.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
-        self.gradient_angle_combo.setToolTip("Direction of the gradient (e.g., 135deg or to bottom).")
+        self.gradient_angle_combo.setInsertPolicy(
+            QtWidgets.QComboBox.InsertPolicy.NoInsert)
+        self.gradient_angle_combo.setToolTip(
+            "Direction of the gradient (e.g., 135deg or to bottom).")
         angle_row = QtWidgets.QHBoxLayout()
         angle_widget = QtWidgets.QWidget(gradient_group)
         angle_widget.setLayout(angle_row)
@@ -6216,10 +6668,14 @@ class MainWindow(QtWidgets.QMainWindow):
         gradient_layout.addRow("Angle", angle_widget)
 
         gradient_buttons = QtWidgets.QHBoxLayout()
-        self.btn_apply_gradient = QtWidgets.QPushButton("Apply Gradient Helpers", gradient_group)
-        self.btn_apply_gradient.setToolTip("Updates the gradient utility classes in your CSS.")
-        self.btn_insert_gradient_hero = QtWidgets.QPushButton("Insert Gradient Hero Background", gradient_group)
-        self.btn_insert_gradient_hero.setToolTip("Insert a ready-made hero section that uses the gradient helpers.")
+        self.btn_apply_gradient = QtWidgets.QPushButton(
+            "Apply Gradient Helpers", gradient_group)
+        self.btn_apply_gradient.setToolTip(
+            "Updates the gradient utility classes in your CSS.")
+        self.btn_insert_gradient_hero = QtWidgets.QPushButton(
+            "Insert Gradient Hero Background", gradient_group)
+        self.btn_insert_gradient_hero.setToolTip(
+            "Insert a ready-made hero section that uses the gradient helpers.")
         gradient_buttons.addWidget(self.btn_apply_gradient)
         gradient_buttons.addWidget(self.btn_insert_gradient_hero)
         gradient_layout.addRow(gradient_buttons)
@@ -6232,7 +6688,8 @@ class MainWindow(QtWidgets.QMainWindow):
         background_layout.setSpacing(6)
 
         background_form = QtWidgets.QFormLayout()
-        background_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        background_form.setFieldGrowthPolicy(
+    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.bg_scope_combo = QtWidgets.QComboBox(background_group)
         self.bg_scope_combo.addItems(BACKGROUND_SCOPE_CHOICES)
@@ -6258,13 +6715,17 @@ class MainWindow(QtWidgets.QMainWindow):
         # Gradient background controls
         gradient_widget = QtWidgets.QWidget(self.bg_stack)
         gradient_widget_form = QtWidgets.QFormLayout(gradient_widget)
-        gradient_widget_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        self.bg_gradient_from = ColorButton(DEFAULT_GRADIENT["from"], gradient_widget)
-        self.bg_gradient_to = ColorButton(DEFAULT_GRADIENT["to"], gradient_widget)
+        gradient_widget_form.setFieldGrowthPolicy(
+    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.bg_gradient_from = ColorButton(
+    DEFAULT_GRADIENT["from"], gradient_widget)
+        self.bg_gradient_to = ColorButton(
+    DEFAULT_GRADIENT["to"], gradient_widget)
         self.bg_gradient_angle = QtWidgets.QSpinBox(gradient_widget)
         self.bg_gradient_angle.setRange(0, 360)
         self.bg_gradient_angle.setSuffix("°")
-        self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT.get("angle", "135deg").replace("deg", "")))
+        self.bg_gradient_angle.setValue(
+            int(DEFAULT_GRADIENT.get("angle", "135deg").replace("deg", "")))
         gradient_widget_form.addRow("From", self.bg_gradient_from)
         gradient_widget_form.addRow("To", self.bg_gradient_to)
         gradient_widget_form.addRow("Angle", self.bg_gradient_angle)
@@ -6273,7 +6734,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Image background controls
         image_widget = QtWidgets.QWidget(self.bg_stack)
         image_form = QtWidgets.QFormLayout(image_widget)
-        image_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        image_form.setFieldGrowthPolicy(
+    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         image_path_row = QtWidgets.QHBoxLayout()
         image_path_row.setContentsMargins(0, 0, 0, 0)
         image_path_row.setSpacing(6)
@@ -6285,12 +6747,14 @@ class MainWindow(QtWidgets.QMainWindow):
         image_path_widget.setLayout(image_path_row)
         image_form.addRow("Image", image_path_widget)
         self.bg_image_position_combo = QtWidgets.QComboBox(image_widget)
-        self.bg_image_position_combo.addItems(["center", "top", "bottom", "left", "right"])
+        self.bg_image_position_combo.addItems(
+            ["center", "top", "bottom", "left", "right"])
         image_form.addRow("Position", self.bg_image_position_combo)
         self.bg_image_size_combo = QtWidgets.QComboBox(image_widget)
         self.bg_image_size_combo.addItems(["cover", "contain", "auto"])
         image_form.addRow("Size", self.bg_image_size_combo)
-        self.bg_image_fixed = QtWidgets.QCheckBox("Fixed (parallax)", image_widget)
+        self.bg_image_fixed = QtWidgets.QCheckBox(
+            "Fixed (parallax)", image_widget)
         image_form.addRow("Scrolling", self.bg_image_fixed)
         self.bg_stack.addWidget(image_widget)
 
@@ -6305,13 +6769,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bg_pattern_preview = QtWidgets.QLabel("Pattern preview")
         self.bg_pattern_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.bg_pattern_preview.setMinimumHeight(120)
-        self.bg_pattern_preview.setStyleSheet("border:1px solid rgba(148,163,184,0.6); border-radius:4px;")
+        self.bg_pattern_preview.setStyleSheet(
+            "border:1px solid rgba(148,163,184,0.6); border-radius:4px;")
         pattern_layout.addWidget(self.bg_pattern_preview)
         self.bg_stack.addWidget(pattern_widget)
 
         background_layout.addLayout(background_form)
 
-        self.bg_insert_markup = QtWidgets.QCheckBox("Also insert minimal markup", background_group)
+        self.bg_insert_markup = QtWidgets.QCheckBox(
+    "Also insert minimal markup", background_group)
         background_layout.addWidget(self.bg_insert_markup)
 
         background_buttons = QtWidgets.QHBoxLayout()
@@ -6329,42 +6795,52 @@ class MainWindow(QtWidgets.QMainWindow):
 
         shape_group = QtWidgets.QGroupBox("Corners & Depth", tab)
         shape_layout = QtWidgets.QFormLayout(shape_group)
-        shape_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        shape_layout.setFieldGrowthPolicy(
+    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.radius_spin = QtWidgets.QDoubleSpinBox(shape_group)
         self.radius_spin.setRange(0.5, 2.0)
         self.radius_spin.setSingleStep(0.05)
-        self.radius_spin.setToolTip("Makes corners more round across cards and buttons.")
+        self.radius_spin.setToolTip(
+            "Makes corners more round across cards and buttons.")
         shape_layout.addRow("Radius scale", self.radius_spin)
 
         self.shadow_combo = QtWidgets.QComboBox(shape_group)
         self.shadow_combo.addItems(SHADOW_LEVELS)
-        self.shadow_combo.setToolTip("Adds soft shadow depth to the .shadow utility.")
+        self.shadow_combo.setToolTip(
+            "Adds soft shadow depth to the .shadow utility.")
         shape_layout.addRow("Shadow level", self.shadow_combo)
 
         main_layout.addWidget(shape_group)
 
         motion_group = QtWidgets.QGroupBox("Motion", tab)
         motion_layout = QtWidgets.QFormLayout(motion_group)
-        motion_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        motion_layout.setFieldGrowthPolicy(
+    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
-        self.motion_enable_scroll = QtWidgets.QCheckBox("Enable appear-on-scroll (adds small JS)", motion_group)
-        self.motion_enable_scroll.setToolTip("Reveals elements as they enter the viewport.")
+        self.motion_enable_scroll = QtWidgets.QCheckBox(
+    "Enable appear-on-scroll (adds small JS)", motion_group)
+        self.motion_enable_scroll.setToolTip(
+            "Reveals elements as they enter the viewport.")
         motion_layout.addRow(self.motion_enable_scroll)
 
         self.motion_pref_combo = QtWidgets.QComboBox(motion_group)
-        self.motion_pref_combo.addItems(["Respect visitor setting", "Force on", "Force off"])
-        self.motion_pref_combo.setToolTip("Choose how to handle reduced-motion preferences.")
+        self.motion_pref_combo.addItems(
+            ["Respect visitor setting", "Force on", "Force off"])
+        self.motion_pref_combo.setToolTip(
+            "Choose how to handle reduced-motion preferences.")
         motion_layout.addRow("Reduced motion", self.motion_pref_combo)
 
         self.motion_effect_combo = QtWidgets.QComboBox(motion_group)
         self.motion_effect_combo.addItems(MOTION_EFFECTS)
-        self.motion_effect_combo.setToolTip("Default animation applied when wrapping content.")
+        self.motion_effect_combo.setToolTip(
+            "Default animation applied when wrapping content.")
         motion_layout.addRow("Default effect", self.motion_effect_combo)
 
         self.motion_easing_combo = QtWidgets.QComboBox(motion_group)
         self.motion_easing_combo.addItems(list(MOTION_EASINGS.keys()))
-        self.motion_easing_combo.setToolTip("Easing curve for wrapped animations.")
+        self.motion_easing_combo.setToolTip(
+            "Easing curve for wrapped animations.")
         motion_layout.addRow("Easing", self.motion_easing_combo)
 
         duration_row = QtWidgets.QHBoxLayout()
@@ -6386,8 +6862,10 @@ class MainWindow(QtWidgets.QMainWindow):
         duration_row.addWidget(self.motion_delay_spin)
         motion_layout.addRow("Duration & delay", duration_widget)
 
-        self.btn_wrap_motion_default = QtWidgets.QPushButton("Wrap Selection with Animation", motion_group)
-        self.btn_wrap_motion_default.setToolTip("Wraps the selected HTML with your default animation settings.")
+        self.btn_wrap_motion_default = QtWidgets.QPushButton(
+            "Wrap Selection with Animation", motion_group)
+        self.btn_wrap_motion_default.setToolTip(
+            "Wraps the selected HTML with your default animation settings.")
         motion_layout.addRow(self.btn_wrap_motion_default)
 
         main_layout.addWidget(motion_group)
@@ -6417,12 +6895,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.external_table = QtWidgets.QTableWidget(0, 4, tab)
         self.external_table.setHorizontalHeaderLabels(["Type", "Mode", "URL / Path", "Actions"])
         header = self.external_table.horizontalHeader()
-        header.setStretchLastSection(True)
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.external_table.verticalHeader().setVisible(False)
+        if header is not None:
+            header.setStretchLastSection(True)
+            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        vh = self.external_table.verticalHeader()
+        if vh is not None:
+            vh.setVisible(False)
         self.external_table.setAlternatingRowColors(True)
         self.external_table.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
@@ -7656,21 +8137,27 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
         btn_up = QtWidgets.QToolButton(container)
-        btn_up.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp))
+        style = self.style()
+        if style is not None:
+            btn_up.setIcon(style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp))
         btn_up.setToolTip("Move up")
         btn_up.setAutoRaise(True)
         btn_up.setEnabled(row > 0)
         btn_up.clicked.connect(lambda checked=False, r=row: self._move_external_asset(r, -1))
         layout.addWidget(btn_up)
         btn_down = QtWidgets.QToolButton(container)
-        btn_down.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowDown))
+        style = self.style()
+        if style is not None:
+            btn_down.setIcon(style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowDown))
         btn_down.setToolTip("Move down")
         btn_down.setAutoRaise(True)
         btn_down.setEnabled(row < total_rows - 1)
         btn_down.clicked.connect(lambda checked=False, r=row: self._move_external_asset(r, 1))
         layout.addWidget(btn_down)
         btn_remove = QtWidgets.QToolButton(container)
-        btn_remove.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCloseButton))
+        style = self.style()
+        if style is not None:
+            btn_remove.setIcon(style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCloseButton))
         btn_remove.setToolTip("Remove")
         btn_remove.setAutoRaise(True)
         btn_remove.clicked.connect(lambda checked=False, r=row: self._remove_external_asset(r))
