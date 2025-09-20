@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
 import shutil
 import sys
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
 import webbrowser
 import zipfile
-import uuid
-import hashlib
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -54,6 +57,12 @@ def open_url(url: str) -> None:
     except Exception:
         pass
     webbrowser.open(url)
+
+
+def slugify(text: str) -> str:
+    """Convert text to a URL-safe slug."""
+
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "section"
 
 
 def app_data_dir() -> Path:
@@ -146,6 +155,67 @@ class AssetImage:
             mime=str(data.get("mime", "")),
         )
 
+
+@dataclass
+class ExternalAsset:
+    kind: str
+    mode: str
+    href: str
+    sri: Optional[str] = None
+    original_url: Optional[str] = None
+    data_base64: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, object]:
+        payload: Dict[str, object] = {
+            "kind": self.kind,
+            "mode": self.mode,
+            "href": self.href,
+        }
+        if self.sri:
+            payload["sri"] = self.sri
+        if self.original_url:
+            payload["original_url"] = self.original_url
+        if self.data_base64:
+            payload["data_base64"] = self.data_base64
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "ExternalAsset":
+        href_raw = data.get("href", "")
+        href = str(href_raw) if isinstance(href_raw, (str, bytes)) else ""
+        sri_val = data.get("sri")
+        original = data.get("original_url")
+        encoded = data.get("data_base64")
+        return cls(
+            kind=str(data.get("kind", "css")),
+            mode=str(data.get("mode", "cdn")),
+            href=href,
+            sri=str(sri_val) if isinstance(sri_val, str) and sri_val else None,
+            original_url=str(original) if isinstance(original, str) and original else None,
+            data_base64=str(encoded) if isinstance(encoded, str) and encoded else None,
+        )
+
+
+@dataclass
+class BackgroundSpec:
+    scope: str
+    kind: str
+    value: Dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, object]:
+        return {"scope": self.scope, "kind": self.kind, "value": dict(self.value)}
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "BackgroundSpec":
+        raw_value = data.get("value")
+        value: Dict[str, str]
+        if isinstance(raw_value, dict):
+            value = {str(k): str(v) for k, v in raw_value.items()}
+        else:
+            value = {}
+        return cls(scope=str(data.get("scope", "site")), kind=str(data.get("kind", "solid")), value=value)
+
+
 DEFAULT_PALETTE = {
     "primary": "#2563eb",
     "surface": "#f8fafc",
@@ -183,6 +253,8 @@ class Project:
         palette: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PALETTE))
         fonts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_FONTS))
         images: List[AssetImage] = field(default_factory=list)
+        external: List[ExternalAsset] = field(default_factory=list)
+        backgrounds: List[BackgroundSpec] = field(default_factory=list)
         template_key: str = "starter"
         theme_preset: str = "Calm Sky"
         use_main_js: bool = False
@@ -210,6 +282,8 @@ class Project:
                 "palette": self.palette,
                 "fonts": self.fonts,
                 "images": [img.to_dict() for img in self.images],
+                "external": [asset.to_dict() for asset in self.external],
+                "backgrounds": [bg.to_dict() for bg in self.backgrounds],
                 "template_key": self.template_key,
                 "theme_preset": self.theme_preset,
                 "use_main_js": self.use_main_js,
@@ -257,6 +331,28 @@ class Project:
                 data = migrate_project_v1_to_v2(data)
             pages = [Page(**p) for p in safe_list(data.get("pages", []))]
             images = [AssetImage.from_dict(img) for img in safe_list(data.get("images", [])) if isinstance(img, dict)]
+            external_items: List[ExternalAsset] = []
+            for entry in safe_list(data.get("external", [])):
+                if isinstance(entry, dict):
+                    external_items.append(ExternalAsset.from_dict(entry))
+            backgrounds_data = data.get("backgrounds", [])
+            background_items: List[BackgroundSpec] = []
+            if isinstance(backgrounds_data, list):
+                for entry in backgrounds_data:
+                    if isinstance(entry, dict):
+                        background_items.append(BackgroundSpec.from_dict(entry))
+            elif isinstance(backgrounds_data, dict):
+                for key, entry in backgrounds_data.items():
+                    if isinstance(entry, dict):
+                        value = dict(entry)
+                        value.setdefault("page", str(key))
+                        background_items.append(
+                            BackgroundSpec(
+                                scope=str(entry.get("scope", "page")),
+                                kind=str(entry.get("kind", "solid")),
+                                value={str(k): str(v) for k, v in value.items()},
+                            )
+                        )
             palette = safe_dict(data.get("palette", DEFAULT_PALETTE), DEFAULT_PALETTE)
             fonts = safe_dict(data.get("fonts", DEFAULT_FONTS), DEFAULT_FONTS)
             output_dir = data.get("output_dir")
@@ -308,6 +404,8 @@ class Project:
                 palette=palette,
                 fonts=fonts,
                 images=images,
+                external=external_items,
+                backgrounds=background_items,
                 template_key=str(data.get("template_key", "starter")),
                 theme_preset=str(data.get("theme_preset", "Calm Sky")),
                 use_main_js=bool(data.get("use_main_js", False)),
@@ -415,7 +513,11 @@ FONT_STACKS = [
 CSS_HELPERS_SENTINEL = "/* === WEBINEER CSS HELPERS (DO NOT DUPLICATE) === */"
 ANIM_HELPERS_SENTINEL = "/* === WEBINEER ANIMATION HELPERS === */"
 GRADIENT_HELPERS_SENTINEL = "/* === WEBINEER GRADIENT HELPERS === */"
+BG_HELPERS_SENTINEL = "/* === WEBINEER BG HELPERS (DO NOT DUPLICATE) === */"
 TEMPLATE_EXTRA_SENTINEL = "/* === WEBINEER TEMPLATE EXTRA CSS === */"
+BACKGROUND_BLOCK_START = "/* === WEBINEER BACKGROUNDS START === */"
+BACKGROUND_BLOCK_END = "/* === WEBINEER BACKGROUNDS END === */"
+BACKGROUND_COMMENT_PREFIX = "/* Webineer Background"
 
 CSS_HELPERS_BLOCK = """:root {
   --space-0: 0;
@@ -637,6 +739,86 @@ body {
 .alert-success { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.32); }
 .alert-warning { background: rgba(234, 179, 8, 0.2); border-color: rgba(234, 179, 8, 0.42); }
 .alert-danger { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.36); }
+.muted { color: rgba(15, 23, 42, 0.68); }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.12);
+  font-weight: 600;
+}
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+}
+.breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+}
+.breadcrumb span[aria-current="page"] {
+  font-weight: 600;
+}
+.pill-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.pill-nav a {
+  text-decoration: none;
+  padding: 0.5rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+  color: inherit;
+}
+.pill-nav a.is-active {
+  background: var(--color-primary, #2563eb);
+  color: #fff;
+}
+.shimmer {
+  position: relative;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.18);
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-100%);
+  animation: shimmer-move 1.4s infinite;
+}
+@keyframes shimmer-move {
+  100% { transform: translateX(100%); }
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+"""
+
+BG_HELPERS_BLOCK = """{BG_HELPERS_SENTINEL}
+.bg-cover   {{ background-repeat:no-repeat; background-position:center; background-size:cover; }}
+.bg-fixed   {{ background-attachment: fixed; }}
+.bg-soft    {{ background: color-mix(in oklab, var(--color-primary) 6%, var(--color-surface)); }}
+.glass      {{ backdrop-filter: blur(10px) saturate(120%); background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); border-radius: .8rem; }}
+.tile-grid  {{ display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }}
+.tile       {{ border-radius:.8rem; padding:1rem; background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); box-shadow: 0 10px 30px rgba(0,0,0,.18); }}
+.neon-btn   {{ color:#fff; text-shadow:0 0 8px var(--color-primary); box-shadow:0 0 12px var(--color-primary) inset, 0 0 16px var(--color-primary); }}
 """
 
 
@@ -710,11 +892,18 @@ def animation_helpers_block(motion_pref: str = "respect") -> str:
 [data-animate="fade"].is-in {{ animation-name: fadeInUp; }}
 [data-animate="zoom"].is-in {{ animation-name: zoomIn; }}
 [data-animate="blur"].is-in {{ animation-name: blurIn; }}
+.anim-fade-up   {{ opacity:0; transform: translateY(12px); transition:opacity .6s ease, transform .6s ease; }}
+.anim-fade-in   {{ opacity:0; transition:opacity .6s ease; }}
+.anim-zoom-in   {{ opacity:0; transform: scale(.98); transition:opacity .6s ease, transform .6s ease; }}
+.is-visible.anim-fade-up {{ opacity:1; transform:none; }}
+.is-visible.anim-fade-in {{ opacity:1; }}
+.is-visible.anim-zoom-in {{ opacity:1; transform:scale(1); }}
 """
     )
 
 CSS_SENTINELS = (
     CSS_HELPERS_SENTINEL,
+    BG_HELPERS_SENTINEL,
     GRADIENT_HELPERS_SENTINEL,
     ANIM_HELPERS_SENTINEL,
     TEMPLATE_EXTRA_SENTINEL,
@@ -782,6 +971,22 @@ MAIN_JS_SNIPPET = """// Lightweight helpers for Webineer components
       }
     });
   });
+  const reveal = (root = document) => {
+    const els = root.querySelectorAll('.anim-fade-up, .anim-fade-in, .anim-zoom-in');
+    if (!('IntersectionObserver' in window) || !els.length) {
+      els.forEach((el) => el.classList.add('is-visible'));
+      return;
+    }
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-visible');
+        }
+      });
+    }, { threshold: .12 });
+    els.forEach((el) => io.observe(el));
+  };
+  reveal(document);
 })();
 """
 
@@ -810,90 +1015,184 @@ class Snippet:
     requires_js: bool = False
 
 
-CSS_BG_COVER = ".bg-cover {background-size:cover;background-position:center center;background-repeat:no-repeat;}"
-
-SECTIONS_SNIPPETS: Dict[str, Snippet] = {
-    "hero": Snippet("Hero spotlight", """
-<section class=\"hero\">
+LAYOUT_SNIPPETS: Dict[str, Snippet] = {
+    "hero-spotlight": Snippet(
+        "Hero spotlight",
+        """
+<section class="hero">
   <h1>Headline that inspires confidence</h1>
-  <p class=\"lead\">Explain what you offer and the value in a friendly tone.</p>
-  <div class=\"stack-inline\">
-    <a class=\"btn btn-primary\" href=\"#\">Primary call to action</a>
-    <a class=\"btn btn-ghost\" href=\"#\">Secondary link</a>
+  <p class="lead">Explain what you offer and the value in a friendly tone.</p>
+  <div class="stack-inline">
+    <a class="btn btn-primary" href="#">Primary call to action</a>
+    <a class="btn btn-ghost" href="#">Secondary link</a>
   </div>
 </section>
-"""),
-    "hero-split": Snippet("Hero split", """
-<section class=\"hero hero-split\">
-  <div class=\"stack\">
-    <p class=\"eyebrow\">New announcement</p>
+""",
+    ),
+    "hero-split": Snippet(
+        "Hero split",
+        """
+<section class="hero hero-split">
+  <div class="stack">
+    <p class="eyebrow">New announcement</p>
+    <h1>Pair a bold message with visuals</h1>
+    <p class="lead">Balance storytelling and imagery to quickly explain what you do.</p>
+    <a class="btn btn-primary" href="#">See how it works</a>
   </div>
+  <figure class="card media">
+    <img src="assets/images/placeholder-wide.png" alt="Product screenshot">
+  </figure>
 </section>
-"""),
-    "header": Snippet("Header with navigation", """
-<header class=\"site-header\">
-  <div class=\"main-container stack-inline\">
-    <a class=\"site-logo\" href=\"index.html\">Brand</a>
-    <button class=\"btn btn-ghost\" data-toggle=\"mobile-nav\" aria-expanded=\"false\">Menu</button>
-    <nav class=\"site-nav\" data-mobile-nav>
-      <ul class=\"stack-inline\">
-        <li><a href=\"index.html\">Home</a></li>
-        <li><a href=\"#services\">Services</a></li>
-        <li><a href=\"#about\">About</a></li>
-        <li><a class=\"btn btn-primary btn-pill\" href=\"#contact\">Contact</a></li>
+""",
+    ),
+    "sticky-header": Snippet(
+        "Sticky header",
+        """
+<header class="site-header">
+  <div class="main-container stack-inline">
+    <a class="site-logo" href="index.html">Brand</a>
+    <button class="btn btn-ghost" data-toggle="mobile-nav" aria-expanded="false" aria-controls="primary-menu">Menu</button>
+    <nav class="site-nav" data-mobile-nav id="primary-menu">
+      <ul class="stack-inline">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="#services">Services</a></li>
+        <li><a href="#about">About</a></li>
+        <li><a class="btn btn-primary btn-pill" href="#contact">Contact</a></li>
       </ul>
     </nav>
   </div>
 </header>
-""", requires_js=True),
-    "footer": Snippet("Footer", """
-<footer class=\"section\">
-  <div class=\"grid split-3\">
+""",
+        requires_js=True,
+    ),
+    "tile-dashboard": Snippet(
+        "Tile dashboard",
+        """
+<section class="section">
+  <div class="tile-grid">
+    <a class="tile" href="#"><h3>Docs</h3><p class="muted">Guides & tips</p></a>
+    <a class="tile" href="#"><h3>Blog</h3><p class="muted">Latest updates</p></a>
+    <a class="tile" href="#"><h3>Gallery</h3><p class="muted">Screens & shots</p></a>
+    <a class="tile" href="#"><h3>Contact</h3><p class="muted">Get in touch</p></a>
+  </div>
+</section>
+""",
+    ),
+    "sidebar-layout": Snippet(
+        "Sidebar layout",
+        """
+<section class="section">
+  <div class="grid" style="grid-template-columns: minmax(220px, 260px) 1fr; gap: var(--space-5);">
+    <aside class="card stack" aria-label="Secondary navigation">
+      <h3>Quick links</h3>
+      <ul class="stack" style="list-style:none;padding:0;margin:0;">
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+        <li><a href="#faq">FAQ</a></li>
+      </ul>
+    </aside>
+    <article class="stack">
+      <h2 id="overview">Content area</h2>
+      <p>Use this split layout to mix navigation with detail content.</p>
+      <div class="card">
+        <h3>Highlight</h3>
+        <p>Share updates, announcements, or notes that need extra attention.</p>
+      </div>
+    </article>
+  </div>
+</section>
+""",
+    ),
+    "footer": Snippet(
+        "Footer",
+        """
+<footer class="section">
+  <div class="grid split-3">
     <div>
       <h2>About</h2>
       <p>Brief description about your organization or project.</p>
     </div>
     <div>
       <h2>Links</h2>
-      <ul class=\"stack\" style=\"list-style:none;padding:0;\">
-        <li><a href=\"#\">Pricing</a></li>
-        <li><a href=\"#\">Support</a></li>
-        <li><a href=\"#\">Blog</a></li>
+      <ul class="stack" style="list-style:none;padding:0;">
+        <li><a href="#">Pricing</a></li>
+        <li><a href="#">Support</a></li>
+        <li><a href="#">Blog</a></li>
       </ul>
     </div>
     <div>
       <h2>Stay in touch</h2>
       <p>Share your email to receive updates.</p>
-      <form class=\"stack-inline\">
-        <input class=\"input\" type=\"email\" placeholder=\"email@domain.com\">
-        <button class=\"btn btn-primary\" type=\"submit\">Notify me</button>
+      <form class="stack-inline">
+        <label class="visually-hidden" for="footer-email">Email</label>
+        <input id="footer-email" class="input" type="email" placeholder="email@domain.com">
+        <button class="btn btn-primary" type="submit">Notify me</button>
       </form>
     </div>
   </div>
   <p>© {{site_name}} — Built with love.</p>
 </footer>
-"""),
-    "gallery": Snippet("Gallery", """
-<section class=\"section\">
-  <h2>Gallery</h2>
-  <div class=\"gallery\">
-    <figure><img src=\"assets/images/placeholder-wide.png\" alt=\"Item one\"></figure>
-    <figure><img src=\"assets/images/placeholder-wide.png\" alt=\"Item two\"></figure>
-    <figure><img src=\"assets/images/placeholder-wide.png\" alt=\"Item three\"></figure>
+""",
+    ),
+}
+
+
+SECTIONS_SNIPPETS: Dict[str, Snippet] = {
+    "pricing": Snippet(
+        "Pricing",
+        """
+<section class="section">
+  <h2>Pricing plans</h2>
+  <p class="muted">Choose a package that fits where you are today.</p>
+  <div class="grid split-3">
+    <article class="card">
+      <h3 class="eyebrow">Starter</h3>
+      <p class="lead">$9<span aria-hidden="true">/mo</span></p>
+      <ul class="list-check">
+        <li>Launch-ready templates</li>
+        <li>Email support</li>
+        <li>Up to 3 projects</li>
+      </ul>
+      <a class="btn btn-outline" href="#">Get started</a>
+    </article>
+    <article class="card">
+      <h3 class="eyebrow">Growth</h3>
+      <p class="lead">$29<span aria-hidden="true">/mo</span></p>
+      <ul class="list-check">
+        <li>Unlimited projects</li>
+        <li>Advanced analytics</li>
+        <li>Priority chat</li>
+      </ul>
+      <a class="btn btn-primary" href="#">Most popular</a>
+    </article>
+    <article class="card">
+      <h3 class="eyebrow">Scale</h3>
+      <p class="lead">Talk to us</p>
+      <ul class="list-check">
+        <li>Dedicated partner</li>
+        <li>Custom integrations</li>
+        <li>Launch support</li>
+      </ul>
+      <a class="btn btn-outline" href="#">Book a call</a>
+    </article>
   </div>
 </section>
-"""),
-    "testimonials": Snippet("Testimonials", """
-<section class=\"section section-alt\">
+""",
+    ),
+    "testimonials": Snippet(
+        "Testimonials",
+        """
+<section class="section section-alt">
   <h2>Testimonials</h2>
-  <div class=\"testimonials\">
-    <figure class=\"card\">
+  <div class="testimonials">
+    <figure class="card">
       <blockquote>
         <p>“This changed the way we work together.”</p>
       </blockquote>
       <figcaption>Jordan, Customer Success Lead</figcaption>
     </figure>
-    <figure class=\"card\">
+    <figure class="card">
       <blockquote>
         <p>“A beautiful experience from start to finish.”</p>
       </blockquote>
@@ -901,75 +1200,124 @@ SECTIONS_SNIPPETS: Dict[str, Snippet] = {
     </figure>
   </div>
 </section>
-"""),
-    "contact": Snippet("Contact form", """
-<section class=\"section max-w-md\">
-  <h2>Contact us</h2>
-  <form class=\"stack form\">
-    <label>Full name<input type=\"text\" placeholder=\"Your name\" required></label>
-    <label>Email<input type=\"email\" placeholder=\"you@example.com\" required></label>
-    <label>How can we help?<textarea rows=\"4\"></textarea></label>
-    <button class=\"btn btn-primary\" type=\"submit\">Send message</button>
-  </form>
+""",
+    ),
+    "faq": Snippet(
+        "FAQ",
+        """
+<section class="section max-w-lg">
+  <h2>Frequently asked questions</h2>
+  <details class="faq">
+    <summary>What should visitors know first?</summary>
+    <p>Answer with a friendly sentence or two. Keep it simple and actionable.</p>
+  </details>
+  <details class="faq">
+    <summary>How long does setup take?</summary>
+    <p>Most teams publish in under a day—drag, drop, and refine.</p>
+  </details>
+  <details class="faq">
+    <summary>Can I update content later?</summary>
+    <p>Absolutely. Add new sections and tweak copy whenever inspiration strikes.</p>
+  </details>
 </section>
-"""),
-    "blog": Snippet("Blog list", """
-<section class=\"section\">
+""",
+    ),
+    "blog": Snippet(
+        "Blog list",
+        """
+<section class="section">
   <h2>Latest stories</h2>
-  <div class=\"grid split-3\">
-    <article class=\"card\">
-      <span class=\"badge\">Jul 14</span>
+  <div class="grid split-3">
+    <article class="card">
+      <span class="badge">Jul 14</span>
       <h3>Headline for a new update</h3>
       <p>Keep it short and helpful. Tell the reader what they'll learn.</p>
-      <a class=\"btn btn-link\" href=\"#\">Read more</a>
+      <a class="btn btn-link" href="#">Read more</a>
     </article>
-    <article class=\"card\">
-      <span class=\"badge\">Jul 03</span>
+    <article class="card">
+      <span class="badge">Jul 03</span>
       <h3>Another quick story</h3>
       <p>Share progress, showcase customers, or explain a concept.</p>
-      <a class=\"btn btn-link\" href=\"#\">Read more</a>
+      <a class="btn btn-link" href="#">Read more</a>
     </article>
   </div>
 </section>
-"""),
-    "features": Snippet("Feature comparison", """
-<section class=\"section\">
+""",
+    ),
+    "feature-matrix": Snippet(
+        "Feature matrix",
+        """
+<section class="section">
   <h2>Compare plans</h2>
-  <div class=\"grid split-3\">
-    <article class=\"card\">
+  <div class="grid split-3">
+    <article class="card">
       <h3>Starter</h3>
-      <ul class=\"list-check\">
+      <ul class="list-check">
         <li>Core features</li>
         <li>Email support</li>
         <li>Community access</li>
       </ul>
-      <a class=\"btn btn-outline\" href=\"#\">Choose plan</a>
+      <a class="btn btn-outline" href="#">Choose plan</a>
     </article>
-    <article class=\"card\">
+    <article class="card">
       <h3>Growth</h3>
-      <ul class=\"list-check\">
+      <ul class="list-check">
         <li>Everything in Starter</li>
         <li>Advanced analytics</li>
         <li>Priority help</li>
       </ul>
-      <a class=\"btn btn-primary\" href=\"#\">Best for teams</a>
+      <a class="btn btn-primary" href="#">Best for teams</a>
     </article>
-    <article class=\"card\">
+    <article class="card">
       <h3>Scale</h3>
-      <ul class=\"list-check\">
+      <ul class="list-check">
         <li>Unlimited projects</li>
         <li>Dedicated support</li>
         <li>Custom integrations</li>
       </ul>
-      <a class=\"btn btn-outline\" href=\"#\">Talk to sales</a>
+      <a class="btn btn-outline" href="#">Talk to sales</a>
     </article>
   </div>
 </section>
-"""),
-    "steps": Snippet("Steps / How-to", """
-<section class=\"section\">
+""",
+    ),
+    "timeline": Snippet(
+        "Timeline",
+        """
+<section class="section section-alt">
+  <h2>Roadmap</h2>
+  <div class="timeline">
+    <div class="timeline-item">
+      <span class="badge">Phase 1</span>
+      <div>
+        <h3>Discovery</h3>
+        <p>Understand needs, audience, and goals.</p>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <span class="badge">Phase 2</span>
+      <div>
+        <h3>Design</h3>
+        <p>Prototype and iterate with feedback.</p>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <span class="badge">Phase 3</span>
+      <div>
+        <h3>Launch</h3>
+        <p>Ship with confidence and celebrate wins.</p>
+      </div>
+    </div>
+  </div>
+</section>
+""",
+    ),
+    "steps": Snippet(
+        "Steps",
+        """
+<section class="section">
   <h2>How it works</h2>
-  <div class=\"steps\">
+  <div class="steps">
     <article>
       <h3>1. Share your goals</h3>
       <p>Tell us what success looks like for you.</p>
@@ -984,35 +1332,47 @@ SECTIONS_SNIPPETS: Dict[str, Snippet] = {
     </article>
   </div>
 </section>
-"""),
-    "timeline": Snippet("Timeline", """
-<section class=\"section section-alt\">
-  <h2>Roadmap</h2>
-  <div class=\"timeline\">
-    <div class=\"timeline-item\">
-      <span class=\"badge\">Phase 1</span>
-      <div>
-        <h3>Discovery</h3>
-        <p>Understand needs, audience, and goals.</p>
-      </div>
-    </div>
-    <div class=\"timeline-item\">
-      <span class=\"badge\">Phase 2</span>
-      <div>
-        <h3>Design</h3>
-        <p>Prototype and iterate with feedback.</p>
-      </div>
-    </div>
-    <div class=\"timeline-item\">
-      <span class=\"badge\">Phase 3</span>
-      <div>
-        <h3>Launch</h3>
-        <p>Ship with confidence and celebrate wins.</p>
-      </div>
-    </div>
+""",
+    ),
+    "gallery": Snippet(
+        "Gallery",
+        """
+<section class="section">
+  <h2>Gallery</h2>
+  <div class="gallery">
+    <figure><img src="assets/images/placeholder-wide.png" alt="Item one"></figure>
+    <figure><img src="assets/images/placeholder-wide.png" alt="Item two"></figure>
+    <figure><img src="assets/images/placeholder-wide.png" alt="Item three"></figure>
   </div>
 </section>
-"""),
+""",
+    ),
+    "contact": Snippet(
+        "Contact form",
+        """
+<section class="section max-w-md">
+  <h2>Contact us</h2>
+  <form class="stack form">
+    <label>Full name<input type="text" placeholder="Your name" required></label>
+    <label>Email<input type="email" placeholder="you@example.com" required></label>
+    <label>How can we help?<textarea rows="4"></textarea></label>
+    <button class="btn btn-primary" type="submit">Send message</button>
+  </form>
+</section>
+""",
+    ),
+    "glass-card-cta": Snippet(
+        "Glass card CTA",
+        """
+<section class="section text-center">
+  <div class="glass" style="padding:2rem; border-radius:.8rem;">
+    <h3>Level up your site</h3>
+    <p class="muted">Swap themes, drop sections, and publish anywhere.</p>
+    <a class="btn neon-btn" href="#">Try a template</a>
+  </div>
+</section>
+""",
+    ),
 }
 
 
@@ -1023,52 +1383,165 @@ COMPONENT_SNIPPETS: Dict[str, Snippet] = {
     "button-ghost": Snippet("Button — ghost", "<a class=\"btn btn-ghost\" href=\"#\">Ghost button</a>"),
     "button-pill": Snippet("Button — pill", "<a class=\"btn btn-primary btn-pill\" href=\"#\">Pill button</a>"),
     "button-gradient": Snippet("Button — gradient", "<a class=\"btn btn-gradient\" href=\"#\">Gradient button</a>"),
+    "button-neon": Snippet("Button — neon", "<a class=\"btn neon-btn\" href=\"#\">Glow button</a>"),
     "alert": Snippet("Alert / Callout", "<aside class=\"alert alert-info\">Friendly reminder or info.</aside>"),
     "alert-success": Snippet("Alert — success", "<aside class=\"alert alert-success\">Great news!</aside>"),
-    "card": Snippet("Card", """
-<article class=\"card\">
+    "card": Snippet(
+        "Card",
+        """
+<article class="card">
   <h3>Card title</h3>
   <p>Use cards to highlight features or short blurbs.</p>
-  <a class=\"btn btn-link\" href=\"#\">Read more</a>
+  <a class="btn btn-link" href="#">Read more</a>
 </article>
-"""),
-    "tabs": Snippet("Tabs (CSS only)", """
-<div class=\"tabs\">
-  <input checked id=\"tab-one\" name=\"example-tabs\" type=\"radio\">
-  <label for=\"tab-one\">Tab one</label>
-  <div class=\"tab-content\">
+""",
+    ),
+    "glass-card": Snippet(
+        "Card — glass",
+        """
+<article class="glass" style="padding:1.5rem;">
+  <h3>Frosted glass</h3>
+  <p>Backdrop-filter and subtle borders create a modern feel.</p>
+</article>
+""",
+    ),
+    "tabs": Snippet(
+        "Tabs (CSS only)",
+        """
+<div class="tabs">
+  <input checked id="tab-one" name="example-tabs" type="radio">
+  <label for="tab-one">Tab one</label>
+  <div class="tab-content">
     <p>Content for the first tab.</p>
   </div>
-  <input id=\"tab-two\" name=\"example-tabs\" type=\"radio\">
-  <label for=\"tab-two\">Tab two</label>
-  <div class=\"tab-content\">
+  <input id="tab-two" name="example-tabs" type="radio">
+  <label for="tab-two">Tab two</label>
+  <div class="tab-content">
     <p>Content for the second tab.</p>
   </div>
 </div>
-"""),
-    "accordion": Snippet("Accordion", """
-<details class=\"faq\">
+""",
+    ),
+    "accordion": Snippet(
+        "Accordion",
+        """
+<details class="faq">
   <summary>Frequently asked question</summary>
   <p>Provide a clear, concise answer.</p>
 </details>
-"""),
+""",
+    ),
     "badge": Snippet("Badge", "<span class=\"badge\">New</span>"),
+    "chip": Snippet("Chip", "<span class=\"chip\">Beta</span>"),
     "divider": Snippet("Divider", "<div class=\"divider\"></div>"),
-    "icon-list": Snippet("Icon list", """
-<ul class=\"list-check\">
+    "breadcrumb": Snippet(
+        "Breadcrumb",
+        """
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="#">Home</a>
+  <span aria-hidden="true">›</span>
+  <a href="#">Library</a>
+  <span aria-hidden="true">›</span>
+  <span aria-current="page">Current page</span>
+</nav>
+""",
+    ),
+    "pill-nav": Snippet(
+        "Pill navigation",
+        """
+<nav class="pill-nav" aria-label="Secondary">
+  <a class="is-active" href="#">Overview</a>
+  <a href="#">Features</a>
+  <a href="#">Pricing</a>
+  <a href="#">FAQ</a>
+</nav>
+""",
+    ),
+    "icon-list": Snippet(
+        "Icon list",
+        """
+<ul class="list-check">
   <li>First highlight</li>
   <li>Second highlight</li>
   <li>Third highlight</li>
 </ul>
-"""),
-    "inline-tags": Snippet("Inline tags", """
-<div class=\"inline-tags\">
+""",
+    ),
+    "inline-tags": Snippet(
+        "Inline tags",
+        """
+<div class="inline-tags">
   <span>Design</span>
   <span>Research</span>
   <span>Strategy</span>
 </div>
-"""),
+""",
+    ),
 }
+
+
+EFFECT_SNIPPETS: Dict[str, Snippet] = {
+    "wave": Snippet("Wave separator", svg_wave()),
+    "shimmer": Snippet("Shimmer placeholder", "<div class=\"shimmer\" style=\"height:180px; border-radius:var(--radius-md);\"></div>"),
+    "scroll-reveal": Snippet(
+        "Scroll reveal demo",
+        """
+<section class="section">
+  <h2 class="anim-fade-in">Delightful animations</h2>
+  <p class="anim-fade-up">Add <code>anim-fade-up</code>, <code>anim-fade-in</code>, or <code>anim-zoom-in</code> to any element.</p>
+  <div class="tile-grid">
+    <article class="tile anim-zoom-in">
+      <h3>Ready when visible</h3>
+      <p>Elements animate gently as they enter the viewport.</p>
+    </article>
+    <article class="tile anim-fade-up">
+      <h3>Respect preferences</h3>
+      <p>Reduced motion visitors see calm, static content.</p>
+    </article>
+  </div>
+</section>
+<!-- Turn on Design → Motion → Enable appear-on-scroll (JS) for full effect. -->
+""",
+        requires_js=True,
+    ),
+}
+
+
+class ColorButton(QtWidgets.QPushButton):
+    """Small helper button that opens a color dialog and shows the current color."""
+
+    colorChanged = QtCore.pyqtSignal(str)
+
+    def __init__(self, color: str = "#ffffff", parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self._color = color or "#ffffff"
+        self.setMinimumWidth(80)
+        self.clicked.connect(self._choose_color)
+        self._update_style()
+
+    def color(self) -> str:
+        return self._color
+
+    def setColor(self, color: str) -> None:
+        if not color:
+            return
+        if color == self._color:
+            return
+        self._color = color
+        self._update_style()
+        self.colorChanged.emit(color)
+
+    def _choose_color(self) -> None:
+        dialog_color = QtWidgets.QColorDialog.getColor(QtGui.QColor(self._color), self.window())
+        if dialog_color.isValid():
+            self.setColor(dialog_color.name())
+
+    def _update_style(self) -> None:
+        self.setText(self._color.upper())
+        self.setStyleSheet(
+            f"background:{self._color}; border: 1px solid rgba(148,163,184,0.6); border-radius:4px;"
+            " padding: 6px;"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1077,7 +1550,7 @@ COMPONENT_SNIPPETS: Dict[str, Snippet] = {
 
 
 def html_section_hero() -> str:
-    return SECTIONS_SNIPPETS["hero"].html.strip()
+    return LAYOUT_SNIPPETS["hero-spotlight"].html.strip()
 
 
 def html_section_two_column() -> str:
@@ -1097,7 +1570,7 @@ def html_section_faq() -> str:
 
 
 def html_section_pricing() -> str:
-    return SECTIONS_SNIPPETS["features"].html.strip()
+    return SECTIONS_SNIPPETS["pricing"].html.strip()
 
 
 def html_section_testimonials() -> str:
@@ -1126,6 +1599,25 @@ def svg_dots(bg: str = "#ffffff", dot: str = "#e5e7eb") -> str:
 
 def svg_diagonal_stripes(bg: str = "#ffffff", stripe: str = "#f1f5f9") -> str:
     return f"""<svg viewBox=\"0 0 400 200\" xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" preserveAspectRatio=\"none\">\n  <defs>\n    <pattern id=\"diagonal\" width=\"20\" height=\"20\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">\n      <rect width=\"20\" height=\"20\" fill=\"{bg}\"/>\n      <rect width=\"10\" height=\"20\" fill=\"{stripe}\"/>\n    </pattern>\n  </defs>\n  <rect width=\"400\" height=\"200\" fill=\"url(#diagonal)\"/>\n</svg>"""
+
+
+def svg_wave(fill: str = "#e2e8f0") -> str:
+    path = (
+        "M0,96L60,90C120,85,240,74,360,72C480,70,600,78,720,90C840,102,960,118,1080,114C1200,110,1320,86,1380,74L1440,64L1440,120L1380,120C1320,120,1200,120,1080,120C960,120,840,120,720,120C600,120,480,120,360,120C240,120,120,120,60,120L0,120Z"
+    )
+    return (
+        "<svg class=\"wave\" aria-hidden=\"true\" viewBox=\"0 0 1440 120\" preserveAspectRatio=\"none\">"
+        f"<path fill=\"{fill}\" d=\"{path}\"></path></svg>"
+    )
+
+
+BACKGROUND_SCOPE_CHOICES = ["Entire site", "Current page"]
+BACKGROUND_KIND_CHOICES = ["Solid", "Gradient", "Image", "Pattern"]
+BACKGROUND_PATTERN_PRESETS: Dict[str, str] = {
+    "Soft waves": svg_wave("#dbeafe"),
+    "Diagonal": svg_diagonal_stripes("#ffffff", "#e2e8f0"),
+    "Dot grid": svg_dots("#ffffff", "#cbd5f5"),
+}
 # ---------------------------------------------------------------------------
 # Template specifications
 # ---------------------------------------------------------------------------
@@ -1311,7 +1803,7 @@ body {
 
 
 def _portfolio_spec() -> TemplateSpec:
-    hero = SECTIONS_SNIPPETS["hero-split"].html.strip()
+    hero = LAYOUT_SNIPPETS["hero-split"].html.strip()
     hero = hero.replace("New announcement", "Case studies")
     hero = hero.replace("Highlight the benefit", "I'm {{SITE_NAME}}")
     hero = hero.replace(
@@ -3430,6 +3922,9 @@ BASE_TEMPLATE = """\
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <title>{{ title }} — {{ site_name }}</title>
+  {% for asset in external_css %}
+  <link rel=\"stylesheet\" href=\"{{ asset.href | e }}\"{% if asset.sri %} integrity=\"{{ asset.sri | e }}\" crossorigin=\"anonymous\"{% endif %}>
+  {% endfor %}
   <link rel=\"stylesheet\" href=\"assets/css/style.css\">
   <style>
     :root {
@@ -3441,8 +3936,11 @@ BASE_TEMPLATE = """\
     }
   </style>
 </head>
-<body class=\"main-container\">
+<body class=\"main-container{% if page_slug %} page-{{ page_slug }}{% endif %}\">
   {{ content | safe }}
+  {% for asset in external_js %}
+  <script src=\"{{ asset.href | e }}\"{% if asset.sri %} integrity=\"{{ asset.sri | e }}\" crossorigin=\"anonymous\"{% endif %}></script>
+  {% endfor %}
   {% if use_scroll_js %}<script src=\"assets/js/site.js\" defer></script>{% endif %}
   <script src=\"assets/js/main.js\"{% if not include_js %} defer hidden{% endif %}></script>
 </body>
@@ -3587,10 +4085,16 @@ def render_site(project: Project, output_dir: Path) -> None:
     css_dir = assets_dir / "css"
     img_dir = assets_dir / "images"
     js_dir = assets_dir / "js"
+    vendor_dir = assets_dir / "vendor"
     css_dir.mkdir(parents=True, exist_ok=True)
     img_dir.mkdir(parents=True, exist_ok=True)
+    if vendor_dir.exists():
+        shutil.rmtree(vendor_dir)
+    external_css_payload: List[Dict[str, str]] = []
+    external_js_payload: List[Dict[str, str]] = []
     css_source = project.css or ""
     css = ensure_block(css_source, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+    css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
     css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(project.gradients))
     css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(project.motion_pref))
     extra_block = extract_css_block(css_source, TEMPLATE_EXTRA_SENTINEL)
@@ -3600,6 +4104,39 @@ def render_site(project: Project, output_dir: Path) -> None:
     for asset in project.images:
         data = base64.b64decode(asset.data_base64.encode("ascii"))
         (img_dir / asset.name).write_bytes(data)
+    for asset in project.external:
+        href_value = asset.href
+        rel_path: Optional[Path] = None
+        if asset.mode == "local":
+            rel_path = Path(asset.href)
+            if rel_path.is_absolute() or not rel_path.parts or rel_path.parts[0] != "assets":
+                rel_path = Path("assets") / "vendor" / rel_path.name
+            if not rel_path.name:
+                fallback_base = slugify(asset.original_url or asset.href or f"{asset.kind}-asset")
+                fallback_name = f"{fallback_base or 'external'}{'.css' if asset.kind == 'css' else '.js'}"
+                rel_path = Path("assets") / "vendor" / fallback_name
+            href_value = rel_path.as_posix()
+            if href_value != asset.href:
+                asset.href = href_value
+        if asset.kind == "css":
+            payload: Dict[str, str] = {"href": href_value}
+            if asset.sri:
+                payload["sri"] = asset.sri
+            external_css_payload.append(payload)
+        elif asset.kind == "js":
+            payload = {"href": href_value}
+            if asset.sri:
+                payload["sri"] = asset.sri
+            external_js_payload.append(payload)
+        if asset.mode == "local" and asset.data_base64 and rel_path is not None:
+            target = output_dir / rel_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                blob = base64.b64decode(asset.data_base64.encode("ascii"))
+            except Exception:
+                blob = b""
+            if blob:
+                target.write_bytes(blob)
     js_needed = project.use_main_js or project.use_scroll_animations
     if js_needed:
         js_dir.mkdir(parents=True, exist_ok=True)
@@ -3626,6 +4163,9 @@ def render_site(project: Project, output_dir: Path) -> None:
             content=page.html,
             include_js=project.use_main_js,
             use_scroll_js=project.use_scroll_animations,
+            page_slug=slugify(Path(page.filename).stem),
+            external_css=external_css_payload,
+            external_js=external_js_payload,
             color_primary=project.palette.get("primary", DEFAULT_PALETTE["primary"]),
             color_surface=project.palette.get("surface", DEFAULT_PALETTE["surface"]),
             color_text=project.palette.get("text", DEFAULT_PALETTE["text"]),
@@ -4731,6 +5271,7 @@ def create_project_from_template(
     css = generate_base_css(palette_final, fonts_final, radius_scale, shadow_level)
     if spec.include_helpers:
         css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+    css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
     css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(gradients))
     css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block())
     if spec.extra_css.strip():
@@ -5553,8 +6094,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab_editors.addTab(self.css_editor, "Global CSS")
         self.design_tab = self._build_design_tab()
         self.assets_tab = self._build_assets_tab()
+        self.external_tab = self._build_external_tab()
         self.tab_editors.addTab(self.design_tab, "Design")
         self.tab_editors.addTab(self.assets_tab, "Assets")
+        self.tab_editors.addTab(self.external_tab, "External")
 
         # Preview
         right = QtWidgets.QWidget(self)
@@ -5683,6 +6226,107 @@ class MainWindow(QtWidgets.QMainWindow):
 
         main_layout.addWidget(gradient_group)
 
+        background_group = QtWidgets.QGroupBox("Background", tab)
+        background_layout = QtWidgets.QVBoxLayout(background_group)
+        background_layout.setContentsMargins(8, 8, 8, 8)
+        background_layout.setSpacing(6)
+
+        background_form = QtWidgets.QFormLayout()
+        background_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+
+        self.bg_scope_combo = QtWidgets.QComboBox(background_group)
+        self.bg_scope_combo.addItems(BACKGROUND_SCOPE_CHOICES)
+        background_form.addRow("Scope", self.bg_scope_combo)
+
+        self.bg_kind_combo = QtWidgets.QComboBox(background_group)
+        self.bg_kind_combo.addItems(BACKGROUND_KIND_CHOICES)
+        background_form.addRow("Kind", self.bg_kind_combo)
+
+        self.bg_stack = QtWidgets.QStackedWidget(background_group)
+        background_form.addRow("Options", self.bg_stack)
+
+        # Solid background controls
+        solid_widget = QtWidgets.QWidget(self.bg_stack)
+        solid_layout = QtWidgets.QHBoxLayout(solid_widget)
+        solid_layout.setContentsMargins(0, 0, 0, 0)
+        solid_layout.setSpacing(6)
+        self.bg_solid_color = ColorButton("#0f172a", solid_widget)
+        solid_layout.addWidget(self.bg_solid_color)
+        solid_layout.addStretch(1)
+        self.bg_stack.addWidget(solid_widget)
+
+        # Gradient background controls
+        gradient_widget = QtWidgets.QWidget(self.bg_stack)
+        gradient_widget_form = QtWidgets.QFormLayout(gradient_widget)
+        gradient_widget_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        self.bg_gradient_from = ColorButton(DEFAULT_GRADIENT["from"], gradient_widget)
+        self.bg_gradient_to = ColorButton(DEFAULT_GRADIENT["to"], gradient_widget)
+        self.bg_gradient_angle = QtWidgets.QSpinBox(gradient_widget)
+        self.bg_gradient_angle.setRange(0, 360)
+        self.bg_gradient_angle.setSuffix("°")
+        self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT.get("angle", "135deg").replace("deg", "")))
+        gradient_widget_form.addRow("From", self.bg_gradient_from)
+        gradient_widget_form.addRow("To", self.bg_gradient_to)
+        gradient_widget_form.addRow("Angle", self.bg_gradient_angle)
+        self.bg_stack.addWidget(gradient_widget)
+
+        # Image background controls
+        image_widget = QtWidgets.QWidget(self.bg_stack)
+        image_form = QtWidgets.QFormLayout(image_widget)
+        image_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        image_path_row = QtWidgets.QHBoxLayout()
+        image_path_row.setContentsMargins(0, 0, 0, 0)
+        image_path_row.setSpacing(6)
+        self.bg_image_path = QtWidgets.QLineEdit(image_widget)
+        self.bg_image_browse = QtWidgets.QPushButton("Browse…", image_widget)
+        image_path_row.addWidget(self.bg_image_path)
+        image_path_row.addWidget(self.bg_image_browse)
+        image_path_widget = QtWidgets.QWidget(image_widget)
+        image_path_widget.setLayout(image_path_row)
+        image_form.addRow("Image", image_path_widget)
+        self.bg_image_position_combo = QtWidgets.QComboBox(image_widget)
+        self.bg_image_position_combo.addItems(["center", "top", "bottom", "left", "right"])
+        image_form.addRow("Position", self.bg_image_position_combo)
+        self.bg_image_size_combo = QtWidgets.QComboBox(image_widget)
+        self.bg_image_size_combo.addItems(["cover", "contain", "auto"])
+        image_form.addRow("Size", self.bg_image_size_combo)
+        self.bg_image_fixed = QtWidgets.QCheckBox("Fixed (parallax)", image_widget)
+        image_form.addRow("Scrolling", self.bg_image_fixed)
+        self.bg_stack.addWidget(image_widget)
+
+        # Pattern background controls
+        pattern_widget = QtWidgets.QWidget(self.bg_stack)
+        pattern_layout = QtWidgets.QVBoxLayout(pattern_widget)
+        pattern_layout.setContentsMargins(0, 0, 0, 0)
+        pattern_layout.setSpacing(6)
+        self.bg_pattern_combo = QtWidgets.QComboBox(pattern_widget)
+        self.bg_pattern_combo.addItems(list(BACKGROUND_PATTERN_PRESETS.keys()))
+        pattern_layout.addWidget(self.bg_pattern_combo)
+        self.bg_pattern_preview = QtWidgets.QLabel("Pattern preview")
+        self.bg_pattern_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.bg_pattern_preview.setMinimumHeight(120)
+        self.bg_pattern_preview.setStyleSheet("border:1px solid rgba(148,163,184,0.6); border-radius:4px;")
+        pattern_layout.addWidget(self.bg_pattern_preview)
+        self.bg_stack.addWidget(pattern_widget)
+
+        background_layout.addLayout(background_form)
+
+        self.bg_insert_markup = QtWidgets.QCheckBox("Also insert minimal markup", background_group)
+        background_layout.addWidget(self.bg_insert_markup)
+
+        background_buttons = QtWidgets.QHBoxLayout()
+        background_buttons.setContentsMargins(0, 0, 0, 0)
+        background_buttons.setSpacing(6)
+        self.bg_apply_button = QtWidgets.QPushButton("Apply", background_group)
+        self.bg_reset_button = QtWidgets.QPushButton("Reset", background_group)
+        background_buttons.addWidget(self.bg_apply_button)
+        background_buttons.addWidget(self.bg_reset_button)
+        background_buttons.addStretch(1)
+        background_layout.addLayout(background_buttons)
+
+        main_layout.addWidget(background_group)
+        self._update_background_pattern_preview()
+
         shape_group = QtWidgets.QGroupBox("Corners & Depth", tab)
         shape_layout = QtWidgets.QFormLayout(shape_group)
         shape_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
@@ -5756,6 +6400,46 @@ class MainWindow(QtWidgets.QMainWindow):
         main_layout.addStretch(1)
         return tab
 
+    def _build_external_tab(self) -> QtWidgets.QWidget:
+        tab = QtWidgets.QWidget(self)
+        layout = QtWidgets.QVBoxLayout(tab)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        button_row = QtWidgets.QHBoxLayout()
+        self.btn_external_add_css = QtWidgets.QPushButton("Add CSS link…")
+        self.btn_external_add_js = QtWidgets.QPushButton("Add JS link…")
+        self.btn_external_download = QtWidgets.QPushButton("Download to assets")
+        button_row.addWidget(self.btn_external_add_css)
+        button_row.addWidget(self.btn_external_add_js)
+        button_row.addWidget(self.btn_external_download)
+        button_row.addStretch()
+        layout.addLayout(button_row)
+        self.external_table = QtWidgets.QTableWidget(0, 4, tab)
+        self.external_table.setHorizontalHeaderLabels(["Type", "Mode", "URL / Path", "Actions"])
+        header = self.external_table.horizontalHeader()
+        header.setStretchLastSection(True)
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        self.external_table.verticalHeader().setVisible(False)
+        self.external_table.setAlternatingRowColors(True)
+        self.external_table.setSelectionBehavior(
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.external_table.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.external_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        layout.addWidget(self.external_table, 1)
+        hint = QtWidgets.QLabel(
+            "Link external styles or scripts. Download to keep an offline copy for export."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: rgba(71,85,105,0.9);")
+        layout.addWidget(hint)
+        return tab
+
     def _build_assets_tab(self) -> QtWidgets.QWidget:
         tab = QtWidgets.QWidget(self)
         layout = QtWidgets.QVBoxLayout(tab)
@@ -5823,47 +6507,74 @@ class MainWindow(QtWidgets.QMainWindow):
 
         insert_menu = bar.addMenu("&Insert")
         if insert_menu is not None:
+            self.menu_layouts = insert_menu.addMenu("Layouts")
+            if self.menu_layouts is not None:
+                for key, snippet in LAYOUT_SNIPPETS.items():
+                    action = QtGui.QAction(snippet.label, self)
+                    action.triggered.connect(
+                        lambda checked=False, lib=LAYOUT_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                    )
+                    self.menu_layouts.addAction(action)
             self.menu_sections = insert_menu.addMenu("Sections")
             if self.menu_sections is not None:
                 for key, snippet in SECTIONS_SNIPPETS.items():
                     action = QtGui.QAction(snippet.label, self)
-                    action.triggered.connect(lambda checked=False, k=key: self.insert_snippet(k, section=True))
+                    action.triggered.connect(
+                        lambda checked=False, lib=SECTIONS_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                    )
                     self.menu_sections.addAction(action)
             self.menu_components = insert_menu.addMenu("Components")
             if self.menu_components is not None:
                 for key, snippet in COMPONENT_SNIPPETS.items():
                     action = QtGui.QAction(snippet.label, self)
-                    action.triggered.connect(lambda checked=False, k=key: self.insert_snippet(k, section=False))
+                    action.triggered.connect(
+                        lambda checked=False, lib=COMPONENT_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                    )
                     self.menu_components.addAction(action)
-            self.menu_graphics = insert_menu.addMenu("Graphics")
-            if self.menu_graphics is not None:
-                act_blob = QtGui.QAction("Blob shape", self)
+            self.menu_effects = insert_menu.addMenu("Effects")
+            if self.menu_effects is not None:
+                for key, snippet in EFFECT_SNIPPETS.items():
+                    action = QtGui.QAction(snippet.label, self)
+                    action.triggered.connect(
+                        lambda checked=False, lib=EFFECT_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                    )
+                    self.menu_effects.addAction(action)
+                self.menu_effects.addSeparator()
+                act_blob = QtGui.QAction("Organic blob", self)
                 act_blob.triggered.connect(lambda checked=False: self.insert_graphic(svg_blob()))
-                self.menu_graphics.addAction(act_blob)
+                self.menu_effects.addAction(act_blob)
                 act_dots = QtGui.QAction("Dots pattern", self)
                 act_dots.triggered.connect(lambda checked=False: self.insert_graphic(svg_dots()))
-                self.menu_graphics.addAction(act_dots)
+                self.menu_effects.addAction(act_dots)
                 act_stripes = QtGui.QAction("Diagonal stripes", self)
                 act_stripes.triggered.connect(lambda checked=False: self.insert_graphic(svg_diagonal_stripes()))
-                self.menu_graphics.addAction(act_stripes)
+                self.menu_effects.addAction(act_stripes)
                 act_banner = QtGui.QAction("Gradient banner", self)
                 act_banner.triggered.connect(
                     lambda checked=False: self.insert_graphic(
                         '<div class="bg-gradient" style="width:100%;height:220px;"></div>'
                     )
                 )
-                self.menu_graphics.addAction(act_banner)
-            self.menu_motion = insert_menu.addMenu("Motion")
-            if self.menu_motion is not None:
-                fade_act = QtGui.QAction("Wrap → Fade in", self)
-                fade_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("fade"))
-                zoom_act = QtGui.QAction("Wrap → Zoom in", self)
-                zoom_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("zoom"))
-                blur_act = QtGui.QAction("Wrap → Blur in", self)
-                blur_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("blur"))
-                float_act = QtGui.QAction("Loop → Float", self)
-                float_act.triggered.connect(lambda checked=False: self._apply_motion_wrapper("float", loop=True))
-                self.menu_motion.addActions([fade_act, zoom_act, blur_act, float_act])
+                self.menu_effects.addAction(act_banner)
+            self.menu_animation = insert_menu.addMenu("Animation")
+            if self.menu_animation is not None:
+                fade_up = QtGui.QAction("Wrap → anim-fade-up", self)
+                fade_up.triggered.connect(lambda checked=False: self.insert_animation_wrapper("anim-fade-up"))
+                fade_in = QtGui.QAction("Wrap → anim-fade-in", self)
+                fade_in.triggered.connect(lambda checked=False: self.insert_animation_wrapper("anim-fade-in"))
+                zoom_in = QtGui.QAction("Wrap → anim-zoom-in", self)
+                zoom_in.triggered.connect(lambda checked=False: self.insert_animation_wrapper("anim-zoom-in"))
+                self.menu_animation.addActions([fade_up, fade_in, zoom_in])
+                self.menu_animation.addSeparator()
+                classic_fade = QtGui.QAction("Legacy wrap → Fade in", self)
+                classic_fade.triggered.connect(lambda checked=False: self._apply_motion_wrapper("fade"))
+                classic_zoom = QtGui.QAction("Legacy wrap → Zoom in", self)
+                classic_zoom.triggered.connect(lambda checked=False: self._apply_motion_wrapper("zoom"))
+                classic_blur = QtGui.QAction("Legacy wrap → Blur in", self)
+                classic_blur.triggered.connect(lambda checked=False: self._apply_motion_wrapper("blur"))
+                loop_float = QtGui.QAction("Legacy loop → Float", self)
+                loop_float.triggered.connect(lambda checked=False: self._apply_motion_wrapper("float", loop=True))
+                self.menu_animation.addActions([classic_fade, classic_zoom, classic_blur, loop_float])
 
         m_publish = bar.addMenu("&Publish")
         self.act_publish = QtGui.QAction("Publish…", self)
@@ -5907,12 +6618,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_add_helpers.clicked.connect(self.add_css_helpers)
         self.btn_apply_gradient.clicked.connect(self.apply_gradient_helpers)
         self.btn_insert_gradient_hero.clicked.connect(self.insert_gradient_hero)
+        self.bg_kind_combo.currentIndexChanged.connect(self._on_background_kind_changed)
+        self.bg_scope_combo.currentIndexChanged.connect(self._on_background_scope_changed)
+        self.bg_pattern_combo.currentTextChanged.connect(self._update_background_pattern_preview)
+        self.bg_image_browse.clicked.connect(self._browse_background_image)
+        self.bg_apply_button.clicked.connect(self._apply_background_from_ui)
+        self.bg_reset_button.clicked.connect(self._reset_background_from_ui)
         self.btn_add_asset.clicked.connect(self._browse_assets)
         self.btn_rename_asset.clicked.connect(self._rename_asset)
         self.btn_remove_asset.clicked.connect(self._remove_asset)
         self.btn_set_cover_image.clicked.connect(self._set_cover_image_from_asset)
         self.btn_generate_placeholder.clicked.connect(self._generate_placeholder_asset)
         self.btn_insert_image.clicked.connect(self._insert_image_dialog)
+        self.btn_external_add_css.clicked.connect(lambda: self._add_external_asset("css"))
+        self.btn_external_add_js.clicked.connect(lambda: self._add_external_asset("js"))
+        self.btn_external_download.clicked.connect(self._download_external_asset)
         self.act_new.triggered.connect(lambda: self.maybe_save_before("creating a new project") and self.new_project_bootstrap())
         self.act_open.triggered.connect(lambda: self.maybe_save_before("opening another project") and self.open_project_dialog())
         self.act_save.triggered.connect(self.save_project)
@@ -5960,6 +6680,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.css_editor.blockSignals(True)
         self.css_editor.setPlainText(self.project.css)
         self.css_editor.blockSignals(False)
+        if self.project.backgrounds and BACKGROUND_BLOCK_START not in self.project.css:
+            self._sync_background_css()
         if self.project.pages:
             self.pages_list.setCurrentRow(0)
         self.design_primary.setText(self.project.palette.get("primary", "#2563eb"))
@@ -6019,6 +6741,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_color_swatches()
         self._update_gradient_preview()
         self._refresh_assets()
+        self._refresh_external_assets_table()
+        self._load_background_controls()
         self.update_window_title()
 
     # Page management ---------------------------------------------------
@@ -6047,6 +6771,7 @@ class MainWindow(QtWidgets.QMainWindow):
         css = generate_base_css(palette, fonts)
         if spec.include_helpers:
             css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+        css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
         if spec.extra_css.strip():
             css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
         pages = [
@@ -6127,6 +6852,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.html_editor.blockSignals(False)
         self._current_page_index = index
         self.update_preview()
+        self._load_background_controls()
 
     # Editing & preview -------------------------------------------------
     def _on_editor_changed(self) -> None:
@@ -6202,8 +6928,8 @@ class MainWindow(QtWidgets.QMainWindow):
         selected = cursor.selectedText().replace("\u2029", "\n")
         cursor.insertText(f"{prefix}{selected}{suffix}")
 
-    def insert_snippet(self, key: str, section: bool) -> None:
-        snippet = SECTIONS_SNIPPETS[key] if section else COMPONENT_SNIPPETS[key]
+    def insert_snippet(self, library: Dict[str, Snippet], key: str) -> None:
+        snippet = library[key]
         cursor = self.html_editor.textCursor()
         if not cursor.hasSelection():
             cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
@@ -6212,6 +6938,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.html_editor.setTextCursor(cursor)
         if snippet.requires_js:
             self.project.use_main_js = True
+        self.set_dirty(True)
         self.update_preview()
 
     def insert_graphic(self, markup: str) -> None:
@@ -6225,6 +6952,400 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_dirty(True)
         self.update_preview()
         self.status_bar.showMessage("Graphic inserted", 2000)
+
+    def insert_animation_wrapper(self, class_name: str) -> None:
+        if not self.project:
+            return
+        cursor = self.html_editor.textCursor()
+        selected = cursor.selectedText().replace("\u2029", "\n")
+        if selected:
+            cursor.insertText(f"<div class=\"{class_name}\">\n{selected}\n</div>")
+        else:
+            cursor.insertText(
+                f"\n<div class=\"{class_name}\">\n  <p>Add animated content here.</p>\n</div>\n"
+            )
+        self.project.use_main_js = True
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage(f"Added {class_name} wrapper", 2000)
+
+    def _background_scope_value(self) -> str:
+        if getattr(self, "bg_scope_combo", None) is None:
+            return "site"
+        return "site" if self.bg_scope_combo.currentIndex() == 0 else "page"
+
+    def _background_kind_value(self) -> str:
+        if getattr(self, "bg_kind_combo", None) is None:
+            return "solid"
+        index = self.bg_kind_combo.currentIndex()
+        if 0 <= index < len(BACKGROUND_KIND_CHOICES):
+            return BACKGROUND_KIND_CHOICES[index].lower()
+        return "solid"
+
+    def _current_page(self) -> Optional[Page]:
+        if not self.project or not self.project.pages:
+            return None
+        index = self.pages_list.currentRow()
+        if index < 0 or index >= len(self.project.pages):
+            return None
+        return self.project.pages[index]
+
+    def _background_spec_for_scope(self, scope: str, page_filename: Optional[str]) -> Optional[BackgroundSpec]:
+        for spec in self.project.backgrounds:
+            if spec.scope != scope:
+                continue
+            if scope == "site":
+                return spec
+            if page_filename and spec.value.get("page") == page_filename:
+                return spec
+        return None
+
+    def _store_background_spec(self, spec: BackgroundSpec, page_filename: Optional[str]) -> None:
+        updated: List[BackgroundSpec] = []
+        for existing in self.project.backgrounds:
+            if existing.scope != spec.scope:
+                updated.append(existing)
+                continue
+            if spec.scope == "page" and existing.value.get("page") != page_filename:
+                updated.append(existing)
+        updated.append(spec)
+        self.project.backgrounds = updated
+
+    def _remove_background_spec(self, scope: str, page_filename: Optional[str]) -> bool:
+        removed = False
+        remaining: List[BackgroundSpec] = []
+        for spec in self.project.backgrounds:
+            if spec.scope != scope:
+                remaining.append(spec)
+                continue
+            if scope == "site":
+                removed = True
+                continue
+            if spec.value.get("page") == page_filename:
+                removed = True
+            else:
+                remaining.append(spec)
+        if removed:
+            self.project.backgrounds = remaining
+        return removed
+
+    def _strip_background_blocks(self, css: str) -> str:
+        pattern = re.compile(
+            re.escape(BACKGROUND_BLOCK_START) + r".*?" + re.escape(BACKGROUND_BLOCK_END), re.S
+        )
+        cleaned = re.sub(pattern, "", css)
+        return cleaned.strip()
+
+    def _sync_background_css(self) -> None:
+        css = self.css_editor.toPlainText()
+        css = self._strip_background_blocks(css)
+        blocks = [self._build_background_block(spec) for spec in self.project.backgrounds]
+        blocks = [block for block in blocks if block]
+        if blocks:
+            combined = f"{BACKGROUND_BLOCK_START}\n" + "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
+            css = (css + "\n\n" + combined).strip() if css else combined
+        self.css_editor.blockSignals(True)
+        self.css_editor.setPlainText(css)
+        self.css_editor.blockSignals(False)
+        self.project.css = css
+
+    def _build_background_block(self, spec: BackgroundSpec) -> Optional[str]:
+        scope = spec.scope
+        kind = spec.kind
+        value = spec.value
+        if scope == "site":
+            if kind == "solid":
+                color = value.get("color", "#0f0f0f")
+                return f"{BACKGROUND_COMMENT_PREFIX} (site/solid) */\nbody {{ background: {color}; }}"
+            if kind == "gradient":
+                color_from = value.get("from", "#0ea5e9")
+                color_to = value.get("to", "#a855f7")
+                angle = value.get("angle", "135deg")
+                return (
+                    f"{BACKGROUND_COMMENT_PREFIX} (site/gradient) */\n"
+                    "body::before {\n  content:\"\"; position:fixed; inset:0; z-index:-1;\n"
+                    f"  background: linear-gradient({angle}, {color_from}, {color_to});\n}}"
+                )
+            if kind == "image":
+                filename = value.get("file")
+                if not filename:
+                    return None
+                position = value.get("position", "center")
+                size = value.get("size", "cover")
+                repeat = "no-repeat"
+                fixed_line = "\nbody { background-attachment: fixed; }" if value.get("fixed") == "1" else ""
+                return (
+                    f"{BACKGROUND_COMMENT_PREFIX} (site/image) */\n"
+                    f"body {{ background-image: url('assets/images/{filename}'); }}\n"
+                    f"body {{ background-position:{position}; background-size:{size}; background-repeat:{repeat}; }}"
+                    f"{fixed_line}"
+                )
+            if kind == "pattern":
+                svg = value.get("svg", "")
+                if not svg:
+                    return None
+                encoded = urllib.parse.quote(svg, safe="")
+                return (
+                    f"{BACKGROUND_COMMENT_PREFIX} (site/pattern) */\n"
+                    "body::before {\n  content:\"\"; position:fixed; inset:0; z-index:-1;\n"
+                    f"  background-image: url('data:image/svg+xml,{encoded}');\n  background-repeat: repeat;\n  opacity: 0.65;\n}}"
+                )
+            return None
+
+        class_name = value.get("class") or f"page-bg-{slugify(value.get('page', 'section'))}"
+        if kind == "solid":
+            color = value.get("color", "#0f172a")
+            return f"{BACKGROUND_COMMENT_PREFIX} (page/solid) */\n.{class_name} {{ background: {color}; }}"
+        if kind == "gradient":
+            color_from = value.get("from", "#0ea5e9")
+            color_to = value.get("to", "#a855f7")
+            angle = value.get("angle", "135deg")
+            return (
+                f"{BACKGROUND_COMMENT_PREFIX} (page/gradient) */\n"
+                f".{class_name} {{ background: linear-gradient({angle}, {color_from}, {color_to}); color:#fff; }}"
+            )
+        if kind == "image":
+            filename = value.get("file")
+            if not filename:
+                return None
+            position = value.get("position", "center")
+            size = value.get("size", "cover")
+            repeat = "no-repeat"
+            lines = [
+                f"{BACKGROUND_COMMENT_PREFIX} (page/image) */",
+                f".{class_name} {{ background-image: url('assets/images/{filename}'); }}",
+                f".{class_name} {{ background-position:{position}; background-size:{size}; background-repeat:{repeat}; }}",
+            ]
+            if value.get("fixed") == "1":
+                lines.append(f".{class_name}.bg-fixed {{ background-attachment: fixed; }}")
+            return "\n".join(lines)
+        if kind == "pattern":
+            svg = value.get("svg", "")
+            if not svg:
+                return None
+            encoded = urllib.parse.quote(svg, safe="")
+            return (
+                f"{BACKGROUND_COMMENT_PREFIX} (page/pattern) */\n"
+                f".{class_name} {{ background-image: url('data:image/svg+xml,{encoded}'); background-repeat: repeat; }}"
+            )
+        return None
+
+    def _apply_background_from_ui(self) -> None:
+        if not self.project:
+            return
+        scope = self._background_scope_value()
+        page = self._current_page()
+        page_filename = page.filename if page else None
+        if scope == "page" and not page_filename:
+            QtWidgets.QMessageBox.information(self, "Select a page", "Choose a page before applying a page background.")
+            return
+        kind = self._background_kind_value()
+        value: Dict[str, str] = {}
+        if kind == "solid":
+            value["color"] = self.bg_solid_color.color()
+        elif kind == "gradient":
+            value["from"] = self.bg_gradient_from.color()
+            value["to"] = self.bg_gradient_to.color()
+            value["angle"] = f"{self.bg_gradient_angle.value()}deg"
+        elif kind == "image":
+            path_str = self.bg_image_path.text().strip()
+            if not path_str:
+                QtWidgets.QMessageBox.warning(self, "Choose an image", "Select an image to use as the background.")
+                return
+            path = Path(path_str)
+            asset_name = self._ensure_background_image_asset(path)
+            if not asset_name:
+                return
+            value["file"] = asset_name
+            value["position"] = self.bg_image_position_combo.currentText()
+            value["size"] = self.bg_image_size_combo.currentText()
+            value["fixed"] = "1" if self.bg_image_fixed.isChecked() else "0"
+        elif kind == "pattern":
+            pattern_name = self.bg_pattern_combo.currentText()
+            svg = BACKGROUND_PATTERN_PRESETS.get(pattern_name, "")
+            if not svg:
+                QtWidgets.QMessageBox.warning(self, "Pattern unavailable", "Choose a different pattern preset.")
+                return
+            value["pattern"] = pattern_name
+            value["svg"] = svg
+        else:
+            return
+        if scope == "page" and page_filename:
+            value["page"] = page_filename
+            slug = slugify(Path(page_filename).stem)
+            value.setdefault("class", f"page-bg-{slug}")
+        spec = BackgroundSpec(scope=scope, kind=kind, value=value)
+        self._store_background_spec(spec, page_filename)
+        self._sync_background_css()
+        self.set_dirty(True)
+        if scope == "page" and page_filename:
+            if self.bg_insert_markup.isChecked():
+                self._insert_background_markup(spec)
+            else:
+                self._ensure_background_comment(spec)
+        self._load_background_controls()
+        self.update_preview()
+        self.status_bar.showMessage("Background updated", 2500)
+
+    def _reset_background_from_ui(self) -> None:
+        scope = self._background_scope_value()
+        page = self._current_page()
+        page_filename = page.filename if page else None
+        if scope == "page" and not page_filename:
+            QtWidgets.QMessageBox.information(self, "Select a page", "Choose a page to reset its background.")
+            return
+        if not self._remove_background_spec(scope, page_filename):
+            QtWidgets.QMessageBox.information(self, "Nothing to reset", "No background was set for this scope.")
+            return
+        self._sync_background_css()
+        self.set_dirty(True)
+        self._load_background_controls()
+        self.update_preview()
+        self.status_bar.showMessage("Background removed", 2000)
+
+    def _on_background_kind_changed(self, index: int) -> None:
+        if getattr(self, "bg_stack", None) is None:
+            return
+        self.bg_stack.setCurrentIndex(index)
+        if getattr(self, "bg_pattern_combo", None) is not None and index == BACKGROUND_KIND_CHOICES.index("Pattern"):
+            self._update_background_pattern_preview()
+
+    def _on_background_scope_changed(self, index: int) -> None:  # noqa: ARG002
+        self._load_background_controls()
+
+    def _update_background_pattern_preview(self) -> None:
+        if getattr(self, "bg_pattern_preview", None) is None:
+            return
+        pattern_name = self.bg_pattern_combo.currentText() if self.bg_pattern_combo is not None else ""
+        svg = BACKGROUND_PATTERN_PRESETS.get(pattern_name, "")
+        if not svg:
+            self.bg_pattern_preview.setText("Pattern preview")
+            self.bg_pattern_preview.setStyleSheet(
+                "border:1px solid rgba(148,163,184,0.6); border-radius:4px;"
+            )
+            return
+        encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        self.bg_pattern_preview.setText("")
+        self.bg_pattern_preview.setStyleSheet(
+            "border:1px solid rgba(148,163,184,0.6); border-radius:4px;"
+            f" background-image:url(data:image/svg+xml;base64,{encoded});"
+        )
+
+    def _browse_background_image(self) -> None:
+        start_dir = self.settings.get("last_background_dir", str(Path.home()))
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Choose background image",
+            start_dir,
+            "Images (*.png *.jpg *.jpeg *.gif *.svg *.webp)",
+        )
+        if path:
+            self.settings.set("last_background_dir", str(Path(path).parent))
+            if getattr(self, "bg_image_path", None) is not None:
+                self.bg_image_path.setText(path)
+
+    def _ensure_background_image_asset(self, path: Path) -> Optional[str]:
+        if not path.exists():
+            QtWidgets.QMessageBox.warning(self, "Missing file", f"Could not find {path}.")
+            return None
+        asset = self._asset_from_file(path)
+        if asset is None:
+            return None
+        for existing in self.project.images:
+            if existing.data_base64 == asset.data_base64:
+                return existing.name
+        asset.name = self._unique_asset_name(asset.name)
+        self.project.images.append(asset)
+        self._refresh_assets()
+        self.status_bar.showMessage(f"Added background image {asset.name}", 2000)
+        return asset.name
+
+    def _insert_background_markup(self, spec: BackgroundSpec) -> None:
+        class_name = spec.value.get("class")
+        if not class_name:
+            return
+        snippet = (
+            f"\n<section class=\"bg-cover {class_name}\">\n"
+            "  <div class=\"glass tile\">\n"
+            "    <h2>Headline on image</h2>\n"
+            "    <p class=\"muted\">Your message goes here.</p>\n"
+            "    <a class=\"btn neon-btn\" href=\"#\">Explore</a>\n"
+            "  </div>\n"
+            "</section>\n"
+        )
+        cursor = self.html_editor.textCursor()
+        cursor.insertText(snippet)
+
+    def _ensure_background_comment(self, spec: BackgroundSpec) -> None:
+        class_name = spec.value.get("class")
+        if not class_name:
+            return
+        comment = f"<!-- Add class \"{class_name}\" to a section to use this background -->"
+        html = self.html_editor.toPlainText()
+        if comment in html:
+            return
+        cursor = self.html_editor.textCursor()
+        cursor.movePosition(QtGui.QTextCursor.MoveOperation.Start)
+        cursor.insertText(comment + "\n")
+
+    def _load_background_controls(self) -> None:
+        if getattr(self, "bg_kind_combo", None) is None:
+            return
+        scope = self._background_scope_value()
+        page = self._current_page()
+        page_filename = page.filename if page else None
+        spec = self._background_spec_for_scope(scope, page_filename)
+        kind_index = 0
+        if spec:
+            for idx, label in enumerate(BACKGROUND_KIND_CHOICES):
+                if label.lower() == spec.kind:
+                    kind_index = idx
+                    break
+        self.bg_kind_combo.blockSignals(True)
+        self.bg_kind_combo.setCurrentIndex(kind_index)
+        self.bg_kind_combo.blockSignals(False)
+        self.bg_stack.setCurrentIndex(kind_index)
+
+        if spec and spec.kind == "solid":
+            self.bg_solid_color.setColor(spec.value.get("color", self.project.palette.get("surface", "#0f172a")))
+        else:
+            default_solid = self.project.palette.get("surface", "#f8fafc")
+            self.bg_solid_color.setColor(default_solid)
+
+        if spec and spec.kind == "gradient":
+            self.bg_gradient_from.setColor(spec.value.get("from", DEFAULT_GRADIENT["from"]))
+            self.bg_gradient_to.setColor(spec.value.get("to", DEFAULT_GRADIENT["to"]))
+            angle_val = spec.value.get("angle", DEFAULT_GRADIENT["angle"]).replace("deg", "")
+            try:
+                self.bg_gradient_angle.setValue(int(float(angle_val)))
+            except ValueError:
+                self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
+        else:
+            self.bg_gradient_from.setColor(DEFAULT_GRADIENT["from"])
+            self.bg_gradient_to.setColor(DEFAULT_GRADIENT["to"])
+            self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
+
+        if spec and spec.kind == "image":
+            self.bg_image_path.setText(spec.value.get("file", ""))
+            self.bg_image_position_combo.setCurrentText(spec.value.get("position", "center"))
+            self.bg_image_size_combo.setCurrentText(spec.value.get("size", "cover"))
+            self.bg_image_fixed.setChecked(spec.value.get("fixed") == "1")
+        else:
+            self.bg_image_path.clear()
+            self.bg_image_position_combo.setCurrentText("center")
+            self.bg_image_size_combo.setCurrentText("cover")
+            self.bg_image_fixed.setChecked(False)
+
+        if spec and spec.kind == "pattern":
+            pattern_name = spec.value.get("pattern")
+            if pattern_name in BACKGROUND_PATTERN_PRESETS:
+                self.bg_pattern_combo.setCurrentText(pattern_name)
+        else:
+            if self.bg_pattern_combo.count():
+                self.bg_pattern_combo.setCurrentIndex(0)
+
+        self.bg_insert_markup.setChecked(False)
+        self._update_background_pattern_preview()
 
     # Theme helpers -----------------------------------------------------
     def _compose_css(
@@ -6247,10 +7368,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project.shadow_level,
         )
         css = ensure_block(base_css, CSS_HELPERS_SENTINEL, helper_block)
+        css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
         css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(self.project.gradients))
         css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(self.project.motion_pref))
         if extra_block:
             css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
+        css = self._strip_background_blocks(css)
+        if self.project.backgrounds:
+            blocks = [self._build_background_block(spec) for spec in self.project.backgrounds]
+            blocks = [block for block in blocks if block]
+            if blocks:
+                combined = f"{BACKGROUND_BLOCK_START}\n" + "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
+                css = (css + "\n\n" + combined).strip() if css else combined
         return css
 
     def apply_theme(self) -> None:
@@ -6335,6 +7464,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def add_css_helpers(self) -> None:
         css = self.css_editor.toPlainText()
         updated = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+        updated = ensure_block(updated, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
         if updated == css:
             QtWidgets.QMessageBox.information(self, "Already added", "CSS helpers are already in your stylesheet.")
             return
@@ -6482,6 +7612,234 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.project:
             return
         self._apply_motion_wrapper(self.project.motion_default_effect)
+
+    # External assets management --------------------------------------
+    def _refresh_external_assets_table(self, select_row: Optional[int] = None) -> None:
+        if getattr(self, "external_table", None) is None:
+            return
+        table = self.external_table
+        table.blockSignals(True)
+        table.setRowCount(0)
+        if not self.project or not self.project.external:
+            table.blockSignals(False)
+            return
+        total = len(self.project.external)
+        for row, asset in enumerate(self.project.external):
+            table.insertRow(row)
+            kind_text = asset.kind.upper() if asset.kind else "CSS"
+            kind_item = QtWidgets.QTableWidgetItem(kind_text)
+            kind_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            table.setItem(row, 0, kind_item)
+            mode_label = "Local" if asset.mode == "local" else "CDN"
+            mode_item = QtWidgets.QTableWidgetItem(mode_label)
+            mode_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            table.setItem(row, 1, mode_item)
+            href_display = asset.href
+            if asset.mode == "local" and asset.original_url:
+                tooltip = f"Local: {asset.href}\nSource: {asset.original_url}"
+            else:
+                tooltip = asset.href
+            url_item = QtWidgets.QTableWidgetItem(href_display)
+            url_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            url_item.setToolTip(tooltip)
+            table.setItem(row, 2, url_item)
+            table.setCellWidget(row, 3, self._create_external_action_widget(row, total))
+        table.blockSignals(False)
+        if select_row is not None and 0 <= select_row < table.rowCount():
+            table.selectRow(select_row)
+        elif table.rowCount() and table.currentRow() == -1:
+            table.selectRow(0)
+
+    def _create_external_action_widget(self, row: int, total_rows: int) -> QtWidgets.QWidget:
+        container = QtWidgets.QWidget(self.external_table)
+        layout = QtWidgets.QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        btn_up = QtWidgets.QToolButton(container)
+        btn_up.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp))
+        btn_up.setToolTip("Move up")
+        btn_up.setAutoRaise(True)
+        btn_up.setEnabled(row > 0)
+        btn_up.clicked.connect(lambda checked=False, r=row: self._move_external_asset(r, -1))
+        layout.addWidget(btn_up)
+        btn_down = QtWidgets.QToolButton(container)
+        btn_down.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowDown))
+        btn_down.setToolTip("Move down")
+        btn_down.setAutoRaise(True)
+        btn_down.setEnabled(row < total_rows - 1)
+        btn_down.clicked.connect(lambda checked=False, r=row: self._move_external_asset(r, 1))
+        layout.addWidget(btn_down)
+        btn_remove = QtWidgets.QToolButton(container)
+        btn_remove.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCloseButton))
+        btn_remove.setToolTip("Remove")
+        btn_remove.setAutoRaise(True)
+        btn_remove.clicked.connect(lambda checked=False, r=row: self._remove_external_asset(r))
+        layout.addWidget(btn_remove)
+        layout.addStretch()
+        return container
+
+    def _add_external_asset(self, kind: str) -> None:
+        if not self.project:
+            return
+        title = "Add external CSS" if kind == "css" else "Add external JS"
+        prompt = "Enter the stylesheet URL" if kind == "css" else "Enter the script URL"
+        url, ok = QtWidgets.QInputDialog.getText(self, title, prompt)
+        if not ok:
+            return
+        url = url.strip()
+        if not url:
+            return
+        parsed = urllib.parse.urlparse(url)
+        if not parsed.scheme:
+            if url.startswith("//"):
+                url = "https:" + url
+                parsed = urllib.parse.urlparse(url)
+            else:
+                QtWidgets.QMessageBox.warning(self, "Invalid URL", "Enter a full https:// URL.")
+                return
+        if parsed.scheme not in {"http", "https"}:
+            QtWidgets.QMessageBox.warning(self, "Unsupported scheme", "Only HTTP and HTTPS URLs are supported.")
+            return
+        canonical = url
+        for existing in self.project.external:
+            source = existing.original_url if existing.mode == "local" and existing.original_url else existing.href
+            if existing.kind == kind and source == canonical:
+                QtWidgets.QMessageBox.information(self, "Already added", "This asset is already in your list.")
+                return
+        asset = ExternalAsset(kind=kind, mode="cdn", href=canonical, original_url=canonical)
+        self.project.external.append(asset)
+        self._refresh_external_assets_table(len(self.project.external) - 1)
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("External asset added", 2000)
+
+    def _selected_external_rows(self) -> List[int]:
+        if getattr(self, "external_table", None) is None:
+            return []
+        selection_model = cast(Optional[QtCore.QItemSelectionModel], self.external_table.selectionModel())
+        if selection_model is None:
+            return []
+        return sorted({index.row() for index in selection_model.selectedRows()})
+
+    def _move_external_asset(self, row: int, delta: int) -> None:
+        if not self.project:
+            return
+        new_index = row + delta
+        if row < 0 or new_index < 0 or row >= len(self.project.external) or new_index >= len(self.project.external):
+            return
+        self.project.external[row], self.project.external[new_index] = (
+            self.project.external[new_index],
+            self.project.external[row],
+        )
+        self._refresh_external_assets_table(new_index)
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("External assets reordered", 2000)
+
+    def _remove_external_asset(self, row: int) -> None:
+        if not self.project:
+            return
+        if row < 0 or row >= len(self.project.external):
+            return
+        asset = self.project.external[row]
+        label = f"Remove {asset.kind.upper()} asset?"
+        if (
+            QtWidgets.QMessageBox.question(
+                self,
+                "Remove external asset",
+                f"{label}\n{asset.href}",
+            )
+            != QtWidgets.QMessageBox.StandardButton.Yes
+        ):
+            return
+        del self.project.external[row]
+        next_row = min(row, len(self.project.external) - 1) if self.project.external else None
+        self._refresh_external_assets_table(next_row)
+        self.set_dirty(True)
+        self.update_preview()
+        self.status_bar.showMessage("External asset removed", 2000)
+
+    def _download_external_asset(self) -> None:
+        if not self.project or not self.project.external:
+            QtWidgets.QMessageBox.information(self, "No assets", "Add an external link first.")
+            return
+        rows = self._selected_external_rows()
+        if not rows:
+            QtWidgets.QMessageBox.information(self, "Select asset", "Choose an external link to download.")
+            return
+        changed = False
+        errors: List[str] = []
+        QtWidgets.QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            for row in rows:
+                success, error = self._download_external_row(row)
+                if success:
+                    changed = True
+                elif error:
+                    errors.append(error)
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self._refresh_external_assets_table(rows[0])
+        if changed:
+            self.set_dirty(True)
+            self.update_preview()
+            self.status_bar.showMessage("Downloaded external assets for offline use", 3000)
+        if errors:
+            summary = "\n".join(errors[:3])
+            if len(errors) > 3:
+                summary += "\n…"
+            QtWidgets.QMessageBox.warning(self, "Download issues", summary)
+        if not changed and not errors:
+            QtWidgets.QMessageBox.information(self, "Nothing to download", "The selected assets are already local.")
+
+    def _download_external_row(self, row: int) -> Tuple[bool, Optional[str]]:
+        if not self.project or row < 0 or row >= len(self.project.external):
+            return False, None
+        asset = self.project.external[row]
+        if asset.mode != "cdn":
+            return False, None
+        url = asset.href
+        try:
+            with urllib.request.urlopen(url) as response:
+                data = response.read()
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", exc)
+            return False, f"{url}: {reason}"
+        except Exception as exc:  # pragma: no cover - network runtime guard
+            return False, f"{url}: {exc}"
+        if not data:
+            return False, f"{url}: empty response"
+        filename = self._unique_external_filename(Path(urllib.parse.urlparse(url).path).name or url, asset.kind, row)
+        rel_path = Path("assets") / "vendor" / filename
+        asset.original_url = asset.original_url or url
+        asset.mode = "local"
+        asset.href = rel_path.as_posix()
+        asset.data_base64 = base64.b64encode(data).decode("ascii")
+        asset.sri = None
+        return True, None
+
+    def _unique_external_filename(
+        self, filename: str, kind: str, exclude_index: Optional[int] = None
+    ) -> str:
+        if not self.project:
+            return filename
+        normalized_kind = "css" if kind == "css" else "js"
+        suffix = Path(filename).suffix.lower()
+        if suffix not in {".css", ".js"}:
+            suffix = ".css" if normalized_kind == "css" else ".js"
+        raw_base = Path(filename).stem or f"{normalized_kind}-asset"
+        base_slug = slugify(raw_base) or f"{normalized_kind}-asset"
+        candidate = f"{base_slug}{suffix}"
+        existing = {
+            Path(item.href).name
+            for idx, item in enumerate(self.project.external)
+            if item.mode == "local" and (exclude_index is None or idx != exclude_index)
+        }
+        counter = 2
+        while candidate in existing:
+            candidate = f"{base_slug}-{counter}{suffix}"
+            counter += 1
+        return candidate
 
     # Asset management --------------------------------------------------
     def _refresh_assets(self) -> None:
