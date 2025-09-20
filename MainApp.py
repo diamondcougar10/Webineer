@@ -1688,9 +1688,10 @@ class PageTemplateDialog(QtWidgets.QDialog):
         self._section_entries = []
         while self.sections_layout.count():
             item = self.sections_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+            if item is not None:
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
         entries = PAGE_TYPE_SECTIONS.get(page_type, [])
         self.sections_group.setVisible(bool(entries))
         for label, builder in entries:
