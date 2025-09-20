@@ -10,6 +10,8 @@ import sys
 import tempfile
 import webbrowser
 import zipfile
+import uuid
+import hashlib
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
@@ -65,6 +67,10 @@ RECENTS_PATH = app_data_dir() / "recents.json"
 SETTINGS_PATH = app_data_dir() / "settings.json"
 PREVIEWS_DIR = app_data_dir() / "Previews"
 PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+COVERS_DIR = PREVIEWS_DIR / "Covers"
+COVERS_DIR.mkdir(parents=True, exist_ok=True)
+COVER_FULL_SIZE = QtCore.QSize(1280, 800)
+COVER_TILE_SIZE = QtCore.QSize(420, 260)
 
 
 class SettingsManager:
@@ -189,6 +195,10 @@ class Project:
     motion_default_easing: str = "cubic-bezier(.2,.65,.2,1)"
     motion_default_duration: int = 600
     motion_default_delay: int = 0
+    cover_path: Optional[str] = None
+    cover_updated_utc: Optional[str] = None
+    cover_asset_name: Optional[str] = None
+    cover_tile_path: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -212,6 +222,10 @@ class Project:
             "motion_default_easing": self.motion_default_easing,
             "motion_default_duration": self.motion_default_duration,
             "motion_default_delay": self.motion_default_delay,
+            "cover_path": self.cover_path,
+            "cover_updated_utc": self.cover_updated_utc,
+            "cover_asset_name": self.cover_asset_name,
+            "cover_tile_path": self.cover_tile_path,
         }
 
     @classmethod
@@ -275,6 +289,16 @@ class Project:
             motion_default_delay = safe_int(data.get("motion_default_delay", 0), 0)
             if motion_default_delay < 0:
                 motion_default_delay = 0
+            cover_path_raw = data.get("cover_path")
+            cover_path = str(cover_path_raw) if isinstance(cover_path_raw, str) or cover_path_raw is None else str(cover_path_raw)
+            cover_updated = data.get("cover_updated_utc")
+            cover_asset_name = data.get("cover_asset_name")
+            cover_tile_raw = data.get("cover_tile_path")
+            cover_tile = (
+                str(cover_tile_raw)
+                if isinstance(cover_tile_raw, str) or cover_tile_raw is None
+                else str(cover_tile_raw)
+            )
             return cls(
                 name=str(data.get("name", "My Site")),
                 pages=pages,
@@ -296,6 +320,10 @@ class Project:
                 motion_default_easing=motion_default_easing,
                 motion_default_duration=motion_default_duration,
                 motion_default_delay=motion_default_delay,
+                cover_path=cover_path,
+                cover_updated_utc=str(cover_updated) if cover_updated else None,
+                cover_asset_name=str(cover_asset_name) if cover_asset_name else None,
+                cover_tile_path=cover_tile,
             )
 
 # ---------------------------------------------------------------------------
@@ -1119,6 +1147,8 @@ class TemplateSpec:
     gradients: Optional[Dict[str, str]] = None
     radius_scale: Optional[float] = None
     shadow_level: Optional[str] = None
+    cover_html: Optional[str] = None
+    cover_css: Optional[str] = None
 
 
 def _starter_spec() -> TemplateSpec:
@@ -1138,12 +1168,150 @@ def _starter_spec() -> TemplateSpec:
         "Publish quickly, iterate often.",
     )
     html = "\n\n".join([hero, two_column, features, cta])
+    cover_html = """
+<div class=\"cover-root\">
+  <section class=\"cover-hero\">
+    <div class=\"cover-copy\">
+      <span class=\"cover-eyebrow\">Launch-ready landing</span>
+      <h1>{{SITE_NAME}}</h1>
+      <p class=\"cover-lead\">Craft a polished hero, highlight benefits, and guide visitors to action.</p>
+      <div class=\"cover-cta-row\">
+        <span class=\"cover-chip primary\">Get started</span>
+        <span class=\"cover-chip ghost\">Preview tour</span>
+      </div>
+    </div>
+    <div class=\"cover-hero-art\">
+      <div class=\"cover-mockup\">
+        <div class=\"cover-mockup-bar\"></div>
+        <div class=\"cover-mockup-body\"></div>
+      </div>
+    </div>
+  </section>
+  <section class=\"cover-grid\">
+    <article class=\"cover-card\">
+      <h3>Hero-first</h3>
+      <p>Set the tone with a confident headline and supporting copy.</p>
+    </article>
+    <article class=\"cover-card\">
+      <h3>Feature highlights</h3>
+      <p>Pair icons and copy to explain how you help.</p>
+    </article>
+    <article class=\"cover-card\">
+      <h3>CTA clarity</h3>
+      <p>Keep visitors moving with primary and secondary paths.</p>
+    </article>
+  </section>
+</div>
+"""
+    cover_css = """
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+.cover-root {
+  padding: 48px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+}
+.cover-hero {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 48px;
+  background: radial-gradient(circle at top left, rgba(255,255,255,0.92), transparent 60%), var(--color-surface);
+  border-radius: 28px;
+  padding: 56px;
+  box-shadow: 0 36px 90px rgba(15,23,42,0.16);
+  border: 1px solid rgba(15,23,42,0.08);
+}
+.cover-copy h1 {
+  font-family: var(--font-heading);
+  font-size: 2.8rem;
+  margin: 0 0 12px 0;
+}
+.cover-eyebrow {
+  display: inline-flex;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(37,99,235,0.12);
+  color: rgba(37,99,235,0.9);
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cover-lead {
+  font-size: 1.1rem;
+  line-height: 1.6;
+  margin-bottom: 20px;
+  max-width: 440px;
+}
+.cover-cta-row {
+  display: inline-flex;
+  gap: 14px;
+}
+.cover-chip {
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  box-shadow: 0 14px 30px rgba(37,99,235,0.18);
+}
+.cover-chip.primary {
+  background: var(--color-primary);
+  color: white;
+}
+.cover-chip.ghost {
+  background: rgba(15,23,42,0.06);
+}
+.cover-hero-art {
+  position: relative;
+}
+.cover-mockup {
+  background: linear-gradient(140deg, rgba(37,99,235,0.95), rgba(37,99,235,0.65));
+  border-radius: 26px;
+  padding: 26px;
+  min-height: 280px;
+  display: grid;
+  grid-template-rows: 36px 1fr;
+  gap: 20px;
+  box-shadow: 0 40px 70px rgba(37,99,235,0.32);
+}
+.cover-mockup-bar {
+  background: rgba(255,255,255,0.35);
+  border-radius: 999px;
+}
+.cover-mockup-body {
+  background: rgba(255,255,255,0.18);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.22);
+}
+.cover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.cover-card {
+  background: white;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(15,23,42,0.12);
+  border: 1px solid rgba(15,23,42,0.05);
+}
+.cover-card h3 {
+  margin-top: 0;
+  font-family: var(--font-heading);
+}
+"""
     return TemplateSpec(
         name="Starter landing",
         description="Hero-first landing page with highlights and a call to action.",
         pages=[("index.html", "Home", html)],
         palette=dict(DEFAULT_PALETTE),
         fonts=dict(DEFAULT_FONTS),
+        cover_html=cover_html,
+        cover_css=cover_css,
     )
 
 
@@ -1204,6 +1372,140 @@ def _portfolio_spec() -> TemplateSpec:
     contact_page = "\n\n".join([html_section_contact_form(), html_section_faq()])
     palette = {"primary": "#15803d", "surface": "#f0fdf4", "text": "#052e16"}
     fonts = {"heading": "'Poppins', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    cover_html = """
+<div class=\"portfolio-cover\">
+  <section class=\"portfolio-hero\">
+    <div class=\"portfolio-avatar\">UX</div>
+    <div class=\"portfolio-copy\">
+      <span class=\"portfolio-label\">Creative portfolio</span>
+      <h1>{{SITE_NAME}}</h1>
+      <p>Selected case studies and brand explorations for modern teams.</p>
+      <div class=\"portfolio-tags\">
+        <span>Product design</span>
+        <span>Brand systems</span>
+        <span>Accessibility</span>
+      </div>
+      <div class=\"portfolio-actions\">
+        <span class=\"portfolio-chip primary\">View projects</span>
+        <span class=\"portfolio-chip ghost\">Book a call</span>
+      </div>
+    </div>
+  </section>
+  <section class=\"portfolio-grid\">
+    <article>
+      <h3>Case study: Motionly</h3>
+      <p>Reimagined onboarding to lift activation by 36%.</p>
+    </article>
+    <article>
+      <h3>Identity: Northlake</h3>
+      <p>Warm, editorial look for a mission-driven nonprofit.</p>
+    </article>
+    <article>
+      <h3>UX audit: Segment</h3>
+      <p>Prioritized fixes with annotated walkthroughs.</p>
+    </article>
+  </section>
+</div>
+"""
+    cover_css = """
+body {
+  margin: 0;
+  background: var(--color-surface);
+  font-family: var(--font-body);
+  color: var(--color-text);
+}
+.portfolio-cover {
+  padding: 48px 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.portfolio-hero {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  background: linear-gradient(135deg, rgba(21,128,61,0.16), rgba(21,128,61,0.04));
+  border-radius: 32px;
+  padding: 48px 52px;
+  border: 1px solid rgba(5,46,22,0.08);
+  box-shadow: 0 28px 70px rgba(5,46,22,0.16);
+}
+.portfolio-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 1.6rem;
+  color: white;
+  background: linear-gradient(160deg, var(--color-primary), rgba(21,128,61,0.75));
+  box-shadow: 0 22px 45px rgba(21,128,61,0.35);
+}
+.portfolio-copy h1 {
+  font-family: var(--font-heading);
+  font-size: 2.6rem;
+  margin: 0 0 12px 0;
+}
+.portfolio-label {
+  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  color: rgba(5,46,22,0.68);
+}
+.portfolio-copy p {
+  max-width: 520px;
+  line-height: 1.6;
+  font-size: 1.05rem;
+}
+.portfolio-tags {
+  display: inline-flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.portfolio-tags span {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(5,46,22,0.08);
+  font-weight: 600;
+}
+.portfolio-actions {
+  display: flex;
+  gap: 12px;
+}
+.portfolio-chip {
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.portfolio-chip.primary {
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 16px 40px rgba(21,128,61,0.35);
+}
+.portfolio-chip.ghost {
+  background: rgba(5,46,22,0.08);
+}
+.portfolio-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.portfolio-grid article {
+  background: white;
+  border-radius: 22px;
+  padding: 22px;
+  border: 1px solid rgba(5,46,22,0.06);
+  box-shadow: 0 20px 60px rgba(5,46,22,0.12);
+}
+.portfolio-grid h3 {
+  margin-top: 0;
+  font-family: var(--font-heading);
+}
+"""
     return TemplateSpec(
         name="Portfolio",
         description="Showcase projects with testimonials and a contact path.",
@@ -1214,6 +1516,8 @@ def _portfolio_spec() -> TemplateSpec:
         ],
         palette=palette,
         fonts=fonts,
+        cover_html=cover_html,
+        cover_css=cover_css,
     )
 
 
@@ -1289,6 +1593,152 @@ def _resource_spec() -> TemplateSpec:
 </section>"""
     palette = {"primary": "#6366f1", "surface": "#111827", "text": "#f9fafb"}
     fonts = {"heading": "'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    cover_html = """
+<div class=\"resource-cover\">
+  <section class=\"resource-hero\">
+    <div class=\"resource-meta\">
+      <span class=\"resource-label\">Resource hub</span>
+      <h1>{{SITE_NAME}}</h1>
+      <p>Guides, tutorials, and FAQs to help teams move faster.</p>
+      <div class=\"resource-cta\">
+        <span class=\"resource-chip\">Browse articles</span>
+        <span class=\"resource-chip ghost\">Watch intro</span>
+      </div>
+    </div>
+    <div class=\"resource-panel\">
+      <div class=\"resource-panel-row\">
+        <span class=\"badge\">New</span>
+        <p>Automation playbook</p>
+      </div>
+      <div class=\"resource-panel-row\">
+        <span class=\"badge\">Guide</span>
+        <p>Team onboarding checklist</p>
+      </div>
+      <div class=\"resource-panel-row\">
+        <span class=\"badge\">FAQ</span>
+        <p>How do I sync content?</p>
+      </div>
+    </div>
+  </section>
+  <section class=\"resource-grid\">
+    <article>
+      <h3>Start here</h3>
+      <p>Step-by-step launch plan with embedded video lessons.</p>
+    </article>
+    <article>
+      <h3>Release notes</h3>
+      <p>See what's new and why it matters for your workflow.</p>
+    </article>
+    <article>
+      <h3>Community picks</h3>
+      <p>Curated insights from power users and partner teams.</p>
+    </article>
+  </section>
+</div>
+"""
+    cover_css = """
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+.resource-cover {
+  padding: 52px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.resource-hero {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 36px;
+  background: radial-gradient(circle at top right, rgba(99,102,241,0.18), transparent 60%), rgba(15,23,42,0.6);
+  border-radius: 32px;
+  padding: 52px;
+  border: 1px solid rgba(148,163,184,0.18);
+  box-shadow: 0 36px 80px rgba(15,23,42,0.45);
+}
+.resource-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(199,210,254,0.85);
+}
+.resource-meta h1 {
+  font-family: var(--font-heading);
+  font-size: 2.6rem;
+  margin: 12px 0;
+}
+.resource-meta p {
+  max-width: 460px;
+  line-height: 1.65;
+  color: rgba(226,232,240,0.92);
+}
+.resource-cta {
+  display: inline-flex;
+  gap: 14px;
+  margin-top: 20px;
+}
+.resource-chip {
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  background: var(--color-primary);
+  color: white;
+  box-shadow: 0 18px 48px rgba(99,102,241,0.45);
+}
+.resource-chip.ghost {
+  background: rgba(148,163,184,0.18);
+  color: var(--color-text);
+  box-shadow: none;
+}
+.resource-panel {
+  background: rgba(15,23,42,0.65);
+  border-radius: 24px;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+  box-shadow: inset 0 0 0 1px rgba(148,163,184,0.22);
+}
+.resource-panel-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: center;
+  color: rgba(226,232,240,0.9);
+}
+.resource-panel-row .badge {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(99,102,241,0.35);
+  color: white;
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+.resource-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.resource-grid article {
+  background: rgba(15,23,42,0.72);
+  border-radius: 24px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(15,23,42,0.45);
+  border: 1px solid rgba(148,163,184,0.18);
+}
+.resource-grid h3 {
+  margin-top: 0;
+  font-family: var(--font-heading);
+  color: white;
+}
+.resource-grid p {
+  color: rgba(226,232,240,0.82);
+  line-height: 1.6;
+}
+"""
     return TemplateSpec(
         name="Resource hub",
         description="Organize documentation, tutorials, and helpful FAQs.",
@@ -1348,6 +1798,8 @@ def _resource_spec() -> TemplateSpec:
   display: block;
 }
 """,
+        cover_html=cover_html,
+        cover_css=cover_css,
     )
 
 
@@ -1494,6 +1946,217 @@ def _saas_bold_spec() -> TemplateSpec:
     palette = {"primary": "#38bdf8", "surface": "#0f172a", "text": "#e0f2fe"}
     fonts = {"heading": "'Space Grotesk', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
     gradients = {"from": "#22d3ee", "to": "#6366f1", "angle": "118deg"}
+    cover_html = """
+<div class=\"saas-cover\">
+  <section class=\"saas-hero\">
+    <div class=\"saas-copy\">
+      <span class=\"saas-eyebrow\">Product platform</span>
+      <h1>{{SITE_NAME}}</h1>
+      <p>Ship onboarding journeys, release notes, and help docs from one polished hub.</p>
+      <div class=\"saas-actions\">
+        <span class=\"saas-chip primary\">Start free trial</span>
+        <span class=\"saas-chip ghost\">Watch demo</span>
+      </div>
+      <div class=\"saas-metrics\">
+        <article><strong>4.8★</strong><p>Customer delight score</p></article>
+        <article><strong>+36%</strong><p>Activation lift</p></article>
+        <article><strong>24 hrs</strong><p>To launch new pages</p></article>
+      </div>
+    </div>
+    <div class=\"saas-dashboard\">
+      <div class=\"saas-window\">
+        <header><span></span><span></span><span></span></header>
+        <div class=\"saas-chart\"></div>
+        <div class=\"saas-pills\">
+          <div>Onboarding checklist</div>
+          <div>Usage analytics</div>
+          <div>Lifecycle playbooks</div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class=\"saas-feature-row\">
+    <article>
+      <h3>Gradient hero</h3>
+      <p>Blend glassmorphic panels with confident typography for instant polish.</p>
+    </article>
+    <article>
+      <h3>Guided tours</h3>
+      <p>Lead visitors to the aha moment with progressive onboarding steps.</p>
+    </article>
+    <article>
+      <h3>Conversion ready</h3>
+      <p>Pair CTAs and proof to remove friction on the path to signup.</p>
+    </article>
+  </section>
+</div>
+"""
+    cover_css = """
+body {
+  margin: 0;
+  background: radial-gradient(circle at top right, rgba(34,211,238,0.16), transparent 58%), var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+.saas-cover {
+  padding: 48px 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.saas-hero {
+  display: grid;
+  gap: 36px;
+  grid-template-columns: 1.1fr 0.9fr;
+  background: linear-gradient(135deg, rgba(34,211,238,0.35), rgba(99,102,241,0.18));
+  border-radius: 36px;
+  padding: 52px;
+  box-shadow: 0 40px 90px rgba(15,23,42,0.45);
+  position: relative;
+  overflow: hidden;
+}
+.saas-hero::after {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgba(226,232,240,0.18);
+  border-radius: 30px;
+  pointer-events: none;
+}
+.saas-copy {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 18px;
+}
+.saas-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(226,232,240,0.85);
+}
+.saas-copy h1 {
+  font-family: var(--font-heading);
+  font-size: 2.8rem;
+  margin: 0;
+  color: white;
+}
+.saas-copy p {
+  max-width: 460px;
+  line-height: 1.6;
+  color: rgba(226,232,240,0.88);
+}
+.saas-actions {
+  display: inline-flex;
+  gap: 16px;
+}
+.saas-chip {
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  backdrop-filter: blur(12px);
+}
+.saas-chip.primary {
+  background: var(--color-primary);
+  color: #0f172a;
+  box-shadow: 0 16px 48px rgba(34,211,238,0.45);
+}
+.saas-chip.ghost {
+  color: rgba(226,232,240,0.92);
+  border: 1px solid rgba(226,232,240,0.35);
+}
+.saas-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+.saas-metrics article {
+  background: rgba(15,23,42,0.35);
+  border-radius: 18px;
+  padding: 16px 18px;
+  color: rgba(226,232,240,0.9);
+  text-align: center;
+}
+.saas-metrics strong {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 1.6rem;
+}
+.saas-dashboard {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.saas-window {
+  width: 100%;
+  max-width: 420px;
+  background: rgba(15,23,42,0.65);
+  border-radius: 28px;
+  padding: 26px;
+  box-shadow: 0 30px 60px rgba(15,23,42,0.55);
+  color: white;
+}
+.saas-window header {
+  display: inline-flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.saas-window header span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.35);
+}
+.saas-chart {
+  height: 160px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(34,211,238,0.3), rgba(15,23,42,0.1));
+  margin-bottom: 18px;
+  position: relative;
+  overflow: hidden;
+}
+.saas-chart::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 80%, rgba(94,234,212,0.4), transparent 55%),
+              radial-gradient(circle at 80% 20%, rgba(129,140,248,0.35), transparent 55%);
+}
+.saas-pills {
+  display: grid;
+  gap: 10px;
+}
+.saas-pills div {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(15,23,42,0.55);
+  border: 1px solid rgba(148,163,184,0.25);
+  font-weight: 600;
+}
+.saas-feature-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.saas-feature-row article {
+  background: white;
+  padding: 24px;
+  border-radius: 22px;
+  box-shadow: 0 22px 55px rgba(15,23,42,0.18);
+}
+.saas-feature-row h3 {
+  font-family: var(--font-heading);
+  margin-top: 0;
+}
+.saas-feature-row p {
+  margin-bottom: 0;
+  color: rgba(15,23,42,0.76);
+}
+"""
     return TemplateSpec(
         name="Bold SaaS",
         description="Gradient-rich SaaS marketing with metrics, testimonials, and pricing.",
@@ -1508,6 +2171,8 @@ def _saas_bold_spec() -> TemplateSpec:
         gradients=gradients,
         radius_scale=1.15,
         shadow_level="lg",
+        cover_html=cover_html,
+        cover_css=cover_css,
     )
 
 
@@ -1632,6 +2297,167 @@ def _photo_showcase_spec() -> TemplateSpec:
     palette = {"primary": "#f59e0b", "surface": "#0f172a", "text": "#f8fafc"}
     fonts = {"heading": "'Playfair Display', 'Times New Roman', serif", "body": "'Source Sans Pro', 'Helvetica Neue', sans-serif"}
     gradients = {"from": "#0ea5e9", "to": "#f472b6", "angle": "135deg"}
+    cover_html = """
+<div class=\"photo-cover\">
+  <section class=\"photo-hero\">
+    <div class=\"photo-copy\">
+      <span class=\"photo-label\">Editorial photography</span>
+      <h1>{{SITE_NAME}}</h1>
+      <p>Tell immersive stories with layered imagery and quiet typography.</p>
+      <div class=\"photo-actions\">
+        <span class=\"photo-chip primary\">View portfolio</span>
+        <span class=\"photo-chip ghost\">Book a session</span>
+      </div>
+      <ul class=\"photo-tags\">
+        <li>Brand</li>
+        <li>Editorial</li>
+        <li>Lifestyle</li>
+      </ul>
+    </div>
+    <div class=\"photo-mosaic\">
+      <div class=\"photo-frame tall\"></div>
+      <div class=\"photo-frame wide\"></div>
+      <div class=\"photo-frame square\"></div>
+    </div>
+  </section>
+  <section class=\"photo-grid\">
+    <article>
+      <h3>Case studies</h3>
+      <p>Highlight hero shoots with warm, editorial layouts and captions.</p>
+    </article>
+    <article>
+      <h3>Behind the scenes</h3>
+      <p>Blend motion-inspired textures and candid storytelling moments.</p>
+    </article>
+    <article>
+      <h3>Booking details</h3>
+      <p>Set expectations with clear timelines, pricing, and deliverables.</p>
+    </article>
+  </section>
+</div>
+"""
+    cover_css = """
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+.photo-cover {
+  padding: 52px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.photo-hero {
+  display: grid;
+  gap: 36px;
+  grid-template-columns: 1.1fr 1fr;
+  background: linear-gradient(135deg, rgba(15,23,42,0.82), rgba(15,23,42,0.55));
+  border-radius: 40px;
+  padding: 52px;
+  box-shadow: 0 36px 90px rgba(15,23,42,0.55);
+  position: relative;
+  overflow: hidden;
+}
+.photo-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top left, rgba(15,118,110,0.35), transparent 55%),
+              radial-gradient(circle at bottom right, rgba(244,114,182,0.28), transparent 60%);
+  pointer-events: none;
+}
+.photo-copy {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 20px;
+  color: rgba(248,250,252,0.92);
+}
+.photo-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: rgba(236,254,255,0.75);
+}
+.photo-copy h1 {
+  margin: 0;
+  font-size: 2.9rem;
+  font-family: var(--font-heading);
+}
+.photo-actions {
+  display: inline-flex;
+  gap: 16px;
+}
+.photo-chip {
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.photo-chip.primary {
+  background: var(--color-primary);
+  color: #0f172a;
+  box-shadow: 0 22px 48px rgba(245,158,11,0.45);
+}
+.photo-chip.ghost {
+  border: 1px solid rgba(241,245,249,0.35);
+  color: rgba(241,245,249,0.92);
+}
+.photo-tags {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  gap: 12px;
+}
+.photo-tags li {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(148,163,184,0.25);
+}
+.photo-mosaic {
+  display: grid;
+  grid-template-areas: "tall wide" "tall square";
+  gap: 18px;
+}
+.photo-frame {
+  border-radius: 24px;
+  background: linear-gradient(160deg, rgba(15,118,110,0.65), rgba(244,114,182,0.65));
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(15,23,42,0.45);
+}
+.photo-frame::after {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 18px;
+}
+.photo-frame.tall { grid-area: tall; min-height: 260px; }
+.photo-frame.wide { grid-area: wide; min-height: 150px; }
+.photo-frame.square { grid-area: square; min-height: 150px; }
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.photo-grid article {
+  background: white;
+  padding: 24px;
+  border-radius: 24px;
+  box-shadow: 0 26px 60px rgba(15,23,42,0.15);
+}
+.photo-grid h3 {
+  margin-top: 0;
+  font-family: var(--font-heading);
+}
+.photo-grid p {
+  color: rgba(30,41,59,0.78);
+}
+"""
     return TemplateSpec(
         name="Photo showcase",
         description="Immersive gallery layout with editorial storytelling and booking form.",
@@ -1646,6 +2472,8 @@ def _photo_showcase_spec() -> TemplateSpec:
         gradients=gradients,
         radius_scale=1.05,
         shadow_level="md",
+        cover_html=cover_html,
+        cover_css=cover_css,
     )
 
 
@@ -1812,6 +2640,189 @@ def _event_launch_spec() -> TemplateSpec:
     palette = {"primary": "#fb923c", "surface": "#111827", "text": "#fef3c7"}
     fonts = {"heading": "'Plus Jakarta Sans', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
     gradients = {"from": "#fb923c", "to": "#f43f5e", "angle": "120deg"}
+    cover_html = """
+<div class=\"event-cover\">
+  <section class=\"event-hero\">
+    <div class=\"event-copy\">
+      <span class=\"event-eyebrow\">Three-day summit</span>
+      <h1>{{SITE_NAME}}</h1>
+      <p>Workshops, keynotes, and community meetups for creative web teams.</p>
+      <div class=\"event-meta\">
+        <span>May 24–26 · Harbor Convention Center</span>
+        <span>500+ makers · Hybrid sessions</span>
+      </div>
+      <div class=\"event-actions\">
+        <span class=\"event-chip primary\">Reserve seat</span>
+        <span class=\"event-chip ghost\">View schedule</span>
+      </div>
+    </div>
+    <div class=\"event-schedule\">
+      <article>
+        <h4>Day 1 · Momentum</h4>
+        <ul>
+          <li>09:00 · Opening keynote</li>
+          <li>11:30 · Building with tokens</li>
+          <li>15:00 · Accessibility labs</li>
+        </ul>
+      </article>
+      <article>
+        <h4>Day 2 · Collaboration</h4>
+        <ul>
+          <li>09:30 · Motion storytelling</li>
+          <li>13:00 · Inclusive content sprints</li>
+          <li>17:00 · Community showcase</li>
+        </ul>
+      </article>
+      <article>
+        <h4>Day 3 · Launch</h4>
+        <ul>
+          <li>10:00 · Product marketing roundtables</li>
+          <li>12:30 · Live audits</li>
+          <li>16:00 · Closing celebration</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+  <section class=\"event-speakers\">
+    <article>
+      <div class=\"avatar\">JL</div>
+      <div><h3>Jordan Lee</h3><p>Design systems lead</p></div>
+    </article>
+    <article>
+      <div class=\"avatar\">AC</div>
+      <div><h3>Amina Cole</h3><p>Creative director</p></div>
+    </article>
+    <article>
+      <div class=\"avatar\">SR</div>
+      <div><h3>Sam Rivera</h3><p>Product strategist</p></div>
+    </article>
+  </section>
+</div>
+"""
+    cover_css = """
+body {
+  margin: 0;
+  background: radial-gradient(circle at top, rgba(251,146,60,0.25), transparent 60%), var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+.event-cover {
+  padding: 48px 54px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.event-hero {
+  display: grid;
+  gap: 32px;
+  grid-template-columns: 1fr 1fr;
+  background: linear-gradient(125deg, rgba(251,146,60,0.28), rgba(244,63,94,0.22));
+  border-radius: 36px;
+  padding: 48px;
+  box-shadow: 0 36px 85px rgba(15,23,42,0.55);
+}
+.event-copy {
+  display: grid;
+  gap: 18px;
+}
+.event-eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(248,250,252,0.8);
+}
+.event-copy h1 {
+  margin: 0;
+  font-size: 2.8rem;
+  font-family: var(--font-heading);
+  color: rgba(248,250,252,0.95);
+}
+.event-copy p {
+  max-width: 420px;
+  line-height: 1.6;
+  color: rgba(248,250,252,0.85);
+}
+.event-meta {
+  display: grid;
+  gap: 8px;
+  color: rgba(248,250,252,0.75);
+}
+.event-actions {
+  display: inline-flex;
+  gap: 16px;
+}
+.event-chip {
+  padding: 12px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.event-chip.primary {
+  background: var(--color-primary);
+  color: #111827;
+  box-shadow: 0 22px 50px rgba(251,146,60,0.45);
+}
+.event-chip.ghost {
+  border: 1px solid rgba(248,250,252,0.35);
+  color: rgba(248,250,252,0.9);
+}
+.event-schedule {
+  display: grid;
+  gap: 16px;
+}
+.event-schedule article {
+  background: rgba(15,23,42,0.55);
+  border-radius: 20px;
+  padding: 18px 20px;
+  color: rgba(248,250,252,0.9);
+  box-shadow: inset 0 0 0 1px rgba(248,250,252,0.08);
+}
+.event-schedule h4 {
+  margin: 0 0 12px 0;
+  font-family: var(--font-heading);
+  font-size: 1.05rem;
+}
+.event-schedule ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.55;
+}
+.event-speakers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.event-speakers article {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: center;
+  background: rgba(15,23,42,0.7);
+  padding: 20px 22px;
+  border-radius: 22px;
+  box-shadow: 0 26px 60px rgba(15,23,42,0.45);
+}
+.event-speakers h3 {
+  margin: 0;
+  font-family: var(--font-heading);
+  color: rgba(248,250,252,0.95);
+}
+.event-speakers p {
+  margin: 4px 0 0 0;
+  color: rgba(248,250,252,0.7);
+}
+.avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  background: rgba(248,250,252,0.18);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: rgba(248,250,252,0.9);
+}
+"""
     return TemplateSpec(
         name="Event launch",
         description="Countdown-ready event site with schedule, speakers, and travel info.",
@@ -1826,6 +2837,8 @@ def _event_launch_spec() -> TemplateSpec:
         gradients=gradients,
         radius_scale=1.1,
         shadow_level="md",
+        cover_html=cover_html,
+        cover_css=cover_css,
     )
 
 def _pricing_hero() -> str:
@@ -1982,6 +2995,8 @@ class TemplateDefinition:
     title: str
     description: str
     default_pages: List[Tuple[str, str]]
+    cover_html: Optional[str] = None
+    cover_css: Optional[str] = None
 
 
 TEMPLATES: Dict[str, TemplateDefinition] = {
@@ -1993,9 +3008,419 @@ TEMPLATES: Dict[str, TemplateDefinition] = {
             (filename, html.replace("{{SITE_NAME}}", "{{site_name}}"))
             for filename, _, html in spec.pages
         ],
+        cover_html=spec.cover_html,
+        cover_css=spec.cover_css,
     )
     for key, spec in PROJECT_TEMPLATES.items()
 }
+
+
+# ---------------------------------------------------------------------------
+# Cover rendering utilities
+# ---------------------------------------------------------------------------
+
+
+def _normalize_hex(color: str, default: str) -> str:
+    if not color or not isinstance(color, str):
+        return default
+    color = color.strip()
+    if not color:
+        return default
+    if color.startswith("#"):
+        hex_part = color[1:]
+        if len(hex_part) in {3, 6, 8}:
+            return "#" + hex_part
+    return default
+
+
+def _color_from_palette(palette: Dict[str, str], key: str, fallback: str) -> QtGui.QColor:
+    value = _normalize_hex(palette.get(key, fallback), fallback)
+    color = QtGui.QColor(value)
+    if not color.isValid():
+        color = QtGui.QColor(fallback)
+    return color
+
+
+def _primary_font(font_str: str, fallback: str) -> str:
+    if not font_str:
+        return fallback
+    primary = font_str.split(",", 1)[0].strip().strip("'\"")
+    return primary or fallback
+
+
+def _contrast_text_for(color: QtGui.QColor) -> QtGui.QColor:
+    if not color.isValid():
+        return QtGui.QColor("#0f172a")
+    r, g, b = color.redF(), color.greenF(), color.blueF()
+    luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return QtGui.QColor("#0f172a") if luminance > 0.55 else QtGui.QColor("#f8fafc")
+
+
+def _extract_tagline(project: Project) -> str:
+    if not project.pages:
+        return "Design, launch, and iterate with confidence."
+    html = project.pages[0].html
+    match = re.search(r"<p[^>]*>(.*?)</p>", html, re.IGNORECASE | re.DOTALL)
+    if match:
+        text = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+        if text:
+            return text[:220]
+    spec = PROJECT_TEMPLATES.get(project.template_key)
+    if spec and spec.description:
+        return spec.description
+    return "Craft a polished presence in minutes."
+
+
+def _collect_card_titles(project: Project) -> List[str]:
+    titles = [page.title for page in project.pages[1:4] if page.title]
+    if not titles:
+        titles = ["Highlights", "What you get", "Next steps"]
+    while len(titles) < 3:
+        defaults = ["Highlights", "What you get", "Next steps", "Contact"]
+        titles.append(defaults[len(titles) % len(defaults)])
+    return titles[:3]
+
+
+def _project_cover_asset(project: Project) -> Optional[QtGui.QPixmap]:
+    candidate: Optional[AssetImage] = None
+    if project.cover_asset_name:
+        candidate = next((img for img in project.images if img.name == project.cover_asset_name), None)
+    if candidate is None:
+        candidate = next((img for img in project.images if img.mime != "image/svg+xml"), None)
+    if candidate is None and project.images:
+        candidate = project.images[0]
+    if candidate is None or not candidate.data_base64:
+        return None
+    try:
+        data = base64.b64decode(candidate.data_base64.encode("ascii"))
+    except Exception:
+        return None
+    image = QtGui.QImage.fromData(data)
+    if image.isNull():
+        return None
+    return QtGui.QPixmap.fromImage(image)
+
+
+def render_project_cover(project: Project, size: QtCore.QSize = COVER_FULL_SIZE) -> QtGui.QPixmap:
+    surface = _color_from_palette(project.palette, "surface", DEFAULT_PALETTE["surface"])
+    primary = _color_from_palette(project.palette, "primary", DEFAULT_PALETTE["primary"])
+    text_color = _color_from_palette(project.palette, "text", DEFAULT_PALETTE["text"])
+    pixmap = QtGui.QPixmap(size)
+    pixmap.fill(surface)
+    painter = QtGui.QPainter(pixmap)
+    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing)
+    margin = int(min(size.width(), size.height()) * 0.06)
+    hero_height = int(size.height() * 0.55)
+    hero_rect = QtCore.QRectF(margin, margin, size.width() - margin * 2, hero_height)
+    hero_path = QtGui.QPainterPath()
+    radius = min(hero_rect.width(), hero_rect.height()) * 0.06
+    hero_path.addRoundedRect(hero_rect, radius, radius)
+    gradient = QtGui.QLinearGradient(hero_rect.topLeft(), hero_rect.bottomRight())
+    grad_primary = QtGui.QColor(primary)
+    grad_primary.setAlphaF(0.85)
+    gradient.setColorAt(0.0, grad_primary)
+    mix = QtGui.QColor(surface)
+    mix.setAlphaF(0.92)
+    gradient.setColorAt(1.0, mix)
+    painter.fillPath(hero_path, gradient)
+    overlay = QtGui.QColor(primary)
+    overlay.setAlpha(35)
+    painter.fillPath(hero_path, overlay)
+    painter.setPen(QtGui.QPen(QtGui.QColor(primary), 1.2))
+    painter.drawPath(hero_path)
+
+    content_margin = 48
+    text_width = hero_rect.width() * 0.55
+    text_rect = QtCore.QRectF(
+        hero_rect.left() + content_margin,
+        hero_rect.top() + content_margin,
+        text_width - content_margin,
+        hero_rect.height() - content_margin * 2,
+    )
+    heading_font = QtGui.QFont(_primary_font(project.fonts.get("heading", DEFAULT_FONTS["heading"]), "Poppins"))
+    heading_font.setBold(True)
+    heading_font.setPointSizeF(max(28.0, size.width() / 28))
+    eyebrow_font = QtGui.QFont(_primary_font(project.fonts.get("body", DEFAULT_FONTS["body"]), "Inter"))
+    eyebrow_font.setPointSizeF(max(13.0, size.width() / 55))
+    eyebrow_font.setLetterSpacing(QtGui.QFont.SpacingType.PercentageSpacing, 108)
+    eyebrow_font.setCapitalization(QtGui.QFont.Capitalization.AllUppercase)
+    body_font = QtGui.QFont(_primary_font(project.fonts.get("body", DEFAULT_FONTS["body"]), "Inter"))
+    body_font.setPointSizeF(max(14.0, size.width() / 60))
+
+    painter.save()
+    painter.setPen(QtGui.QPen(primary))
+    painter.setFont(eyebrow_font)
+    painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, "Launch-ready")
+
+    painter.setPen(QtGui.QPen(text_color))
+    painter.setFont(heading_font)
+    title_rect = QtCore.QRectF(text_rect.left(), text_rect.top() + 32, text_rect.width(), text_rect.height())
+    painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, project.name.strip() or "Untitled")
+
+    tagline = _extract_tagline(project)
+    painter.setFont(body_font)
+    tagline_rect = QtCore.QRectF(
+        text_rect.left(),
+        title_rect.top() + heading_font.pointSizeF() * 1.8,
+        text_rect.width(),
+        text_rect.height() - heading_font.pointSizeF() * 1.8,
+    )
+    painter.drawText(tagline_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.TextWordWrap, tagline)
+
+    chip_height = 36
+    chip_spacing = 16
+    chip_y = tagline_rect.top() + max(tagline_rect.height() * 0.4, 48)
+    chip_rect_primary = QtCore.QRectF(text_rect.left(), chip_y, 160, chip_height)
+    chip_rect_secondary = QtCore.QRectF(chip_rect_primary.right() + chip_spacing, chip_y, 150, chip_height)
+    cta_text_color = _contrast_text_for(primary)
+
+    def draw_chip(rect: QtCore.QRectF, bg: QtGui.QColor, fg: QtGui.QColor, label: str) -> None:
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(rect, chip_height / 2, chip_height / 2)
+        painter.fillPath(path, bg)
+        painter.setPen(QtGui.QPen(QtGui.QColor(bg).darker(115) if fg == cta_text_color else fg))
+        painter.setFont(QtGui.QFont(body_font.family(), max(12.0, size.width() / 70)))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+
+    draw_chip(chip_rect_primary, primary, cta_text_color, "Get started")
+    ghost_bg = QtGui.QColor(surface)
+    ghost_bg = ghost_bg.darker(110)
+    ghost_bg.setAlpha(90)
+    ghost_text = QtGui.QColor(text_color)
+    ghost_text.setAlpha(230)
+    draw_chip(chip_rect_secondary, ghost_bg, ghost_text, "Preview")
+    painter.restore()
+
+    painter.save()
+    image_pix = _project_cover_asset(project)
+    if image_pix is not None:
+        art_width = hero_rect.width() - text_width - content_margin
+        art_rect = QtCore.QRectF(
+            hero_rect.left() + text_width + content_margin * 0.4,
+            hero_rect.top() + content_margin,
+            art_width - content_margin,
+            hero_rect.height() - content_margin * 2,
+        )
+        art_path = QtGui.QPainterPath()
+        art_path.addRoundedRect(art_rect, 28, 28)
+        painter.setClipPath(art_path)
+        scaled = image_pix.scaled(art_rect.size().toSize(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+        target = QtCore.QRectF(
+            art_rect.center().x() - scaled.width() / 2,
+            art_rect.center().y() - scaled.height() / 2,
+            scaled.width(),
+            scaled.height(),
+        )
+        painter.drawPixmap(target, scaled)
+        painter.setClipping(False)
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 25), 2))
+        painter.drawPath(art_path)
+    painter.restore()
+
+    cards_top = hero_rect.bottom() + margin * 0.6
+    card_area_height = size.height() - cards_top - margin
+    if card_area_height > 0:
+        cards_rect = QtCore.QRectF(hero_rect.left(), cards_top, hero_rect.width(), card_area_height)
+        card_spacing = 20
+        card_width = (cards_rect.width() - card_spacing * 2) / 3
+        card_titles = _collect_card_titles(project)
+        for idx, title in enumerate(card_titles):
+            card_rect = QtCore.QRectF(
+                cards_rect.left() + idx * (card_width + card_spacing),
+                cards_rect.top(),
+                card_width,
+                cards_rect.height() * 0.85,
+            )
+            card_path = QtGui.QPainterPath()
+            card_path.addRoundedRect(card_rect, 24, 24)
+            card_bg = QtGui.QColor(surface)
+            card_bg = card_bg.lighter(103 + idx * 4)
+            painter.fillPath(card_path, card_bg)
+            painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 18)))
+            painter.drawPath(card_path)
+            painter.setPen(QtGui.QPen(text_color))
+            painter.setFont(QtGui.QFont(heading_font.family(), max(14.0, size.width() / 55)))
+            heading_rect = QtCore.QRectF(
+                card_rect.left() + 20,
+                card_rect.top() + 18,
+                card_rect.width() - 40,
+                40,
+            )
+            painter.drawText(heading_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, title)
+            painter.setFont(QtGui.QFont(body_font.family(), max(12.0, size.width() / 70)))
+            body_rect = QtCore.QRectF(
+                heading_rect.left(),
+                heading_rect.bottom() + 12,
+                heading_rect.width(),
+                card_rect.height() - 80,
+            )
+            sample = [
+                "Launch new sections quickly with curated blocks.",
+                "Showcase wins and social proof with ease.",
+                "Keep visitors moving with confident calls to action.",
+            ]
+            painter.drawText(
+                body_rect,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.TextWordWrap,
+                sample[idx % len(sample)],
+            )
+
+    painter.end()
+    return pixmap
+
+
+def _cover_base_key(project_path_or_temp: Optional[Path]) -> str:
+    if project_path_or_temp is None:
+        return f"temp-{uuid.uuid4().hex}"
+    path = Path(project_path_or_temp)
+    if path.suffix.lower() == ".png" and path.parent == COVERS_DIR:
+        stem = path.stem
+        if stem.endswith("-cover"):
+            return stem[:-6]
+        return stem
+    try:
+        resolved = path.resolve()
+    except Exception:
+        resolved = path
+    return f"{abs(hash(str(resolved))):x}"
+
+
+def save_cover_png(pixmap: QtGui.QPixmap, project_path_or_temp: Optional[Path]) -> Path:
+    base_key = _cover_base_key(project_path_or_temp)
+    cover_path = COVERS_DIR / f"{base_key}-cover.png"
+    tile_path = PREVIEWS_DIR / f"{base_key}-tile.png"
+    pixmap.save(str(cover_path), "PNG")
+    tile = pixmap.scaled(COVER_TILE_SIZE, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+    tile.save(str(tile_path), "PNG")
+    return cover_path
+
+
+def cover_tile_path_from_cover(cover_path: Path) -> Path:
+    base_key = _cover_base_key(cover_path)
+    return PREVIEWS_DIR / f"{base_key}-tile.png"
+
+
+def get_cover_or_thumbnail(project: Project, project_path: Optional[Path] = None) -> Optional[Path]:
+    if project.cover_path and Path(project.cover_path).exists():
+        return Path(project.cover_path)
+    if project.cover_tile_path and Path(project.cover_tile_path).exists():
+        return Path(project.cover_tile_path)
+    if project_path:
+        key = _cover_base_key(project_path)
+        cover_candidate = COVERS_DIR / f"{key}-cover.png"
+        if cover_candidate.exists():
+            return cover_candidate
+        tile_candidate = PREVIEWS_DIR / f"{key}-tile.png"
+        if tile_candidate.exists():
+            return tile_candidate
+    return None
+
+
+DEFAULT_TEMPLATE_COVER_CSS = """
+body {
+  margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+.template-cover {
+  min-height: 100vh;
+  padding: 32px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.template-cover > * {
+  width: min(1180px, 100%);
+  margin: auto;
+}
+"""
+
+DEFAULT_TEMPLATE_COVER_HTML = """
+<div class=\"cover-root\">
+  <section style=\"padding:48px;border-radius:24px;background:rgba(37,99,235,0.12);text-align:center;\">
+    <h1 style=\"font-family:var(--font-heading);font-size:3rem;margin-bottom:12px;\">{{SITE_NAME}}</h1>
+    <p style=\"font-size:1.1rem;max-width:560px;margin:0 auto 24px;\">Choose a template to see its curated preview.</p>
+    <div style=\"display:inline-flex;gap:16px;\">
+      <span style=\"padding:12px 22px;border-radius:999px;background:var(--color-primary);color:#fff;font-weight:600;\">Primary action</span>
+      <span style=\"padding:12px 22px;border-radius:999px;background:rgba(15,23,42,0.08);font-weight:600;\">Secondary</span>
+    </div>
+  </section>
+</div>
+"""
+
+
+def template_preview_html(
+    template_key: str,
+    project_name: str,
+    palette: Dict[str, str],
+    fonts: Dict[str, str],
+) -> str:
+    spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
+    html = (spec.cover_html or DEFAULT_TEMPLATE_COVER_HTML).replace("{{SITE_NAME}}", project_name or spec.name)
+    css = DEFAULT_TEMPLATE_COVER_CSS + (spec.cover_css or "")
+    primary = palette.get("primary", DEFAULT_PALETTE["primary"])
+    surface = palette.get("surface", DEFAULT_PALETTE["surface"])
+    text = palette.get("text", DEFAULT_PALETTE["text"])
+    heading_font = fonts.get("heading", DEFAULT_FONTS["heading"])
+    body_font = fonts.get("body", DEFAULT_FONTS["body"])
+    return f"""<!doctype html><html><head><meta charset='utf-8'><title>{spec.name} preview</title><style>:root {{ --color-primary: {primary}; --color-surface: {surface}; --color-text: {text}; --font-heading: {heading_font}; --font-body: {body_font}; }} {css}</style></head><body class='template-cover'>{html}</body></html>"""
+
+
+def preview_project_for_template(template_key: str, project_name: Optional[str] = None) -> Project:
+    spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
+    pages = [
+        Page(filename=filename, title=title, html=html.replace("{{SITE_NAME}}", project_name or spec.name))
+        for filename, title, html in spec.pages[:1]
+    ]
+    palette = dict(spec.palette or DEFAULT_PALETTE)
+    fonts = dict(spec.fonts or DEFAULT_FONTS)
+    project = Project(
+        name=project_name or spec.name,
+        pages=pages,
+        css=spec.extra_css or "",
+        palette=palette,
+        fonts=fonts,
+        template_key=template_key,
+    )
+    return project
+
+
+_TEMPLATE_COVER_CACHE: Dict[str, QtGui.QPixmap] = {}
+_TEMPLATE_COVER_SIZE_CACHE: Dict[Tuple[str, int, int], QtGui.QPixmap] = {}
+
+
+def template_cover_pixmap(key: str, size: QtCore.QSize = QtCore.QSize(360, 200)) -> QtGui.QPixmap:
+    """Return a cached cover pixmap for template tiles and previews."""
+
+    if size.isValid() is False or size.width() <= 0 or size.height() <= 0:
+        size = QtCore.QSize(360, 200)
+    dims = (size.width(), size.height())
+    cache_key = (key, dims[0], dims[1])
+    cached = _TEMPLATE_COVER_SIZE_CACHE.get(cache_key)
+    if cached is not None and not cached.isNull():
+        return cached.copy()
+
+    base = _TEMPLATE_COVER_CACHE.get(key)
+    if base is None or base.isNull():
+        definition = TEMPLATES.get(key)
+        fallback_name = definition.title if definition else PROJECT_TEMPLATES.get(key, PROJECT_TEMPLATES["starter"]).name
+        project = preview_project_for_template(key, fallback_name)
+        base = render_project_cover(project, COVER_FULL_SIZE)
+        _TEMPLATE_COVER_CACHE[key] = base
+
+    if dims == (base.width(), base.height()):
+        _TEMPLATE_COVER_SIZE_CACHE[cache_key] = base
+        return base.copy()
+
+    scaled = base.scaled(
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    _TEMPLATE_COVER_SIZE_CACHE[cache_key] = scaled
+    return scaled.copy()
 
 
 # ---------------------------------------------------------------------------
@@ -2230,6 +3655,7 @@ class RecentItem:
     last_opened: str
     pinned: bool = False
     thumbnail: Optional[str] = None
+    cover: Optional[str] = None
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -2238,6 +3664,7 @@ class RecentItem:
             "last_opened": self.last_opened,
             "pinned": self.pinned,
             "thumbnail": self.thumbnail,
+            "cover": self.cover,
         }
 
     @classmethod
@@ -2248,6 +3675,7 @@ class RecentItem:
             last_opened=str(data.get("last_opened", datetime.utcnow().isoformat())),
             pinned=bool(data.get("pinned", False)),
             thumbnail=(str(data["thumbnail"]) if data.get("thumbnail") else None),
+            cover=(str(data["cover"]) if data.get("cover") else None),
         )
 
 
@@ -2321,40 +3749,29 @@ class RecentProjectsManager:
                 break
         self.save()
 
+    def set_cover(self, path: Path, cover_path: Path, *, tile_path: Optional[Path] = None) -> None:
+        for item in self._items:
+            if item.path == str(path):
+                item.cover = str(cover_path)
+                if tile_path is not None:
+                    item.thumbnail = str(tile_path)
+                break
+        self.save()
+
 
 def write_project_thumbnail(project: Project, project_path: Optional[Path]) -> Optional[Path]:
-    if project_path is None:
-        return None
-    pixmap = QtGui.QPixmap(420, 260)
-    pixmap.fill(QtGui.QColor(project.palette.get("surface", "#f8fafc")))
-    painter = QtGui.QPainter(pixmap)
-    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-    painter.setPen(QtGui.QPen(QtGui.QColor(project.palette.get("primary", "#2563eb")), 6))
-    painter.drawRoundedRect(12, 12, 396, 236, 18, 18)
-    painter.setPen(QtGui.QPen(QtGui.QColor(project.palette.get("text", "#0f172a"))))
-    font = QtGui.QFont()
-    font.setPointSize(18)
-    font.setBold(True)
-    painter.setFont(font)
-    painter.drawText(
-        pixmap.rect().adjusted(24, 24, -24, -24),
-        Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
-        project.name,
-    )
-    font.setPointSize(11)
-    font.setBold(False)
-    painter.setFont(font)
-    summary = "\n".join(page.title for page in project.pages[:3])
-    painter.drawText(
-        pixmap.rect().adjusted(24, 80, -24, -24),
-        Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft,
-        summary,
-    )
-    painter.end()
-    hash_name = f"{abs(hash(project_path))}.png"
-    output = PREVIEWS_DIR / hash_name
-    pixmap.save(str(output), "PNG")
-    return output
+    base_reference: Optional[Path]
+    if project_path is None and project.cover_path:
+        base_reference = Path(project.cover_path)
+    else:
+        base_reference = project_path
+    pixmap = render_project_cover(project, COVER_FULL_SIZE)
+    cover_path = save_cover_png(pixmap, base_reference)
+    tile_path = cover_tile_path_from_cover(cover_path)
+    project.cover_path = str(cover_path)
+    project.cover_tile_path = str(tile_path)
+    project.cover_updated_utc = datetime.utcnow().isoformat()
+    return tile_path
 
 # ---------------------------------------------------------------------------
 # Automatic recommendations
@@ -2405,26 +3822,124 @@ class LargeToolButton(QtWidgets.QToolButton):
         self.setFont(font)
 
 
+class TemplatePreviewDialog(QtWidgets.QDialog):
+    def __init__(self, title: str, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        ensure_app_icon(self)
+        self.setWindowTitle(f"{title} preview")
+        self.resize(960, 640)
+        layout = QtWidgets.QVBoxLayout(self)
+        self.view = QWebEngineView(self)
+        layout.addWidget(self.view, 1)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Close, parent=self)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        layout.addWidget(buttons)
+
+    def set_preview_html(self, html: str) -> None:
+        self.view.setHtml(html)
+
+
+@dataclass
+class TemplateSelectionResult:
+    template_key: str
+    project_name: str
+    palette: Dict[str, str]
+    fonts: Dict[str, str]
+    theme: str
+
+
 class TemplateSelectDialog(QtWidgets.QDialog):
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None, templates: Dict[str, TemplateSpec] | None = None) -> None:
         super().__init__(parent)
         ensure_app_icon(self)
         self.setWindowTitle("Start a new project")
-        self._templates = templates or {}
+        self.resize(1100, 720)
+        self._templates = templates or PROJECT_TEMPLATES
+        self._template_order = [key for key in self._templates.keys() if key in PROJECT_TEMPLATES]
+        if not self._template_order:
+            self._template_order = ["starter"]
+        self._template_cards: Dict[str, TemplateCard] = {}
+        default_key = "starter" if "starter" in self._template_order else self._template_order[0]
+        self._selected_key = default_key
 
         layout = QtWidgets.QVBoxLayout(self)
-        self.list = QtWidgets.QListWidget(self)
-        for key, spec in self._templates.items():
-            item = QtWidgets.QListWidgetItem(f"{spec.name} — {spec.description}")
-            item.setData(QtCore.Qt.ItemDataRole.UserRole, key)
-            self.list.addItem(item)
-        if self.list.count():
-            self.list.setCurrentRow(0)
-        layout.addWidget(self.list, 1)
+        form_group = QtWidgets.QGroupBox("Project details", self)
+        form_layout = QtWidgets.QFormLayout(form_group)
+        self.name_edit = QtWidgets.QLineEdit("My Site", form_group)
+        form_layout.addRow("Name", self.name_edit)
+        self.theme_combo = QtWidgets.QComboBox(form_group)
+        self.theme_combo.addItems(list(THEME_PRESETS.keys()))
+        form_layout.addRow("Theme", self.theme_combo)
+        self.primary_edit = QtWidgets.QLineEdit(form_group)
+        self.surface_edit = QtWidgets.QLineEdit(form_group)
+        self.text_edit = QtWidgets.QLineEdit(form_group)
+        color_row = QtWidgets.QHBoxLayout()
+        color_row.addWidget(QtWidgets.QLabel("Primary"))
+        color_row.addWidget(self.primary_edit)
+        color_row.addWidget(QtWidgets.QLabel("Surface"))
+        color_row.addWidget(self.surface_edit)
+        color_row.addWidget(QtWidgets.QLabel("Text"))
+        color_row.addWidget(self.text_edit)
+        form_layout.addRow("Palette", color_row)
+        self.heading_combo = QtWidgets.QComboBox(form_group)
+        self.heading_combo.addItems(FONT_STACKS)
+        self.body_combo = QtWidgets.QComboBox(form_group)
+        self.body_combo.addItems(FONT_STACKS)
+        font_row = QtWidgets.QHBoxLayout()
+        font_row.addWidget(QtWidgets.QLabel("Heading"))
+        font_row.addWidget(self.heading_combo)
+        font_row.addWidget(QtWidgets.QLabel("Body"))
+        font_row.addWidget(self.body_combo)
+        form_layout.addRow("Fonts", font_row)
+        layout.addWidget(form_group)
 
-        layout.addWidget(QtWidgets.QLabel("Site name:"))
-        self.name_edit = QtWidgets.QLineEdit("My Site", self)
-        layout.addWidget(self.name_edit)
+        splitter = QtWidgets.QSplitter(Qt.Orientation.Horizontal, self)
+        layout.addWidget(splitter, 1)
+
+        tiles_container = QtWidgets.QWidget(splitter)
+        tiles_layout = QtWidgets.QVBoxLayout(tiles_container)
+        tiles_layout.setContentsMargins(0, 0, 0, 0)
+        tiles_layout.setSpacing(12)
+        tiles_layout.addWidget(QtWidgets.QLabel("Templates"))
+        cards_scroll = QtWidgets.QScrollArea(tiles_container)
+        cards_scroll.setWidgetResizable(True)
+        cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cards_widget = QtWidgets.QWidget(cards_scroll)
+        cards_layout = QtWidgets.QVBoxLayout(cards_widget)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+        cards_layout.setSpacing(12)
+        for key in self._template_order:
+            definition = TEMPLATES.get(key)
+            if definition is None:
+                spec = self._templates.get(key, PROJECT_TEMPLATES["starter"])
+                definition = TemplateDefinition(
+                    key=key,
+                    title=spec.name,
+                    description=spec.description,
+                    default_pages=[(filename, html) for filename, _, html in spec.pages],
+                    cover_html=spec.cover_html,
+                    cover_css=spec.cover_css,
+                )
+            pix = template_cover_pixmap(key, QtCore.QSize(360, 200))
+            card = TemplateCard(definition, cards_widget, preview_pixmap=pix)
+            card.clicked.connect(self._select_card)
+            card.preview_requested.connect(self._show_preview_dialog)
+            cards_layout.addWidget(card)
+            self._template_cards[key] = card
+        cards_layout.addStretch(1)
+        cards_scroll.setWidget(cards_widget)
+        tiles_layout.addWidget(cards_scroll, 1)
+        splitter.addWidget(tiles_container)
+
+        preview_container = QtWidgets.QWidget(splitter)
+        preview_layout = QtWidgets.QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.addWidget(QtWidgets.QLabel("Live preview"))
+        self.preview_view = QWebEngineView(preview_container)
+        preview_layout.addWidget(self.preview_view, 1)
+        splitter.addWidget(preview_container)
+        splitter.setSizes([380, 700])
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
@@ -2434,11 +3949,82 @@ class TemplateSelectDialog(QtWidgets.QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def result(self) -> Tuple[Optional[str], Optional[str]]:
-        item = self.list.currentItem()
-        key = item.data(QtCore.Qt.ItemDataRole.UserRole) if item is not None else None
-        name = self.name_edit.text().strip() or None
-        return key, name
+        self.theme_combo.currentTextChanged.connect(self._apply_theme_palette)
+        for edit in (self.primary_edit, self.surface_edit, self.text_edit):
+            edit.textChanged.connect(self._update_preview)
+        self.heading_combo.currentTextChanged.connect(self._update_preview)
+        self.body_combo.currentTextChanged.connect(self._update_preview)
+        self.name_edit.textChanged.connect(self._update_preview)
+
+        self._apply_theme_palette(self.theme_combo.currentText())
+        self._highlight_selected_card()
+        self._update_preview()
+
+    def _select_card(self, key: str) -> None:
+        if key not in self._template_cards:
+            return
+        self._selected_key = key
+        self._highlight_selected_card()
+        self._update_preview()
+
+    def _highlight_selected_card(self) -> None:
+        for key, card in self._template_cards.items():
+            card.setStyleSheet("border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_key else "")
+
+    def _apply_theme_palette(self, theme: str) -> None:
+        palette = THEME_PRESETS.get(theme, DEFAULT_PALETTE)
+        self.primary_edit.setText(palette.get("primary", DEFAULT_PALETTE["primary"]))
+        self.surface_edit.setText(palette.get("surface", DEFAULT_PALETTE["surface"]))
+        self.text_edit.setText(palette.get("text", DEFAULT_PALETTE["text"]))
+        self._update_preview()
+
+    def _update_preview(self) -> None:
+        palette = {
+            "primary": self.primary_edit.text().strip() or DEFAULT_PALETTE["primary"],
+            "surface": self.surface_edit.text().strip() or DEFAULT_PALETTE["surface"],
+            "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
+        }
+        fonts = {"heading": self.heading_combo.currentText(), "body": self.body_combo.currentText()}
+        definition = TEMPLATES.get(self._selected_key)
+        fallback_title = definition.title if definition else self._templates.get(self._selected_key, PROJECT_TEMPLATES["starter"]).name
+        name = self.name_edit.text().strip() or fallback_title
+        html = template_preview_html(self._selected_key, name, palette, fonts)
+        self.preview_view.setHtml(html)
+
+    def _show_preview_dialog(self, key: str) -> None:
+        palette = {
+            "primary": self.primary_edit.text().strip() or DEFAULT_PALETTE["primary"],
+            "surface": self.surface_edit.text().strip() or DEFAULT_PALETTE["surface"],
+            "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
+        }
+        fonts = {"heading": self.heading_combo.currentText(), "body": self.body_combo.currentText()}
+        definition = TEMPLATES.get(key)
+        fallback_title = definition.title if definition else self._templates.get(key, PROJECT_TEMPLATES["starter"]).name
+        name = self.name_edit.text().strip() or fallback_title
+        html = template_preview_html(key, name, palette, fonts)
+        dialog = TemplatePreviewDialog(fallback_title, self)
+        dialog.set_preview_html(html)
+        dialog.exec()
+
+    def result(self) -> Optional[TemplateSelectionResult]:
+        if self._selected_key not in self._template_cards:
+            return None
+        palette = {
+            "primary": self.primary_edit.text().strip() or DEFAULT_PALETTE["primary"],
+            "surface": self.surface_edit.text().strip() or DEFAULT_PALETTE["surface"],
+            "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
+        }
+        fonts = {"heading": self.heading_combo.currentText(), "body": self.body_combo.currentText()}
+        definition = TEMPLATES.get(self._selected_key)
+        fallback_title = definition.title if definition else self._templates.get(self._selected_key, PROJECT_TEMPLATES["starter"]).name
+        project_name = self.name_edit.text().strip() or fallback_title
+        return TemplateSelectionResult(
+            template_key=self._selected_key,
+            project_name=project_name,
+            palette=palette,
+            fonts=fonts,
+            theme=self.theme_combo.currentText(),
+        )
 
 
 class PageTemplateDialog(QtWidgets.QDialog):
@@ -2535,39 +4121,97 @@ class PageTemplateDialog(QtWidgets.QDialog):
 
 class TemplateCard(QtWidgets.QFrame):
     clicked = QtCore.pyqtSignal(str)
+    preview_requested = QtCore.pyqtSignal(str)
 
-    def __init__(self, template: TemplateDefinition, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        template: TemplateDefinition,
+        parent: Optional[QtWidgets.QWidget] = None,
+        preview_pixmap: Optional[QtGui.QPixmap] = None,
+    ) -> None:
         super().__init__(parent)
         self.template = template
         self.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
         self.setFrameShadow(QtWidgets.QFrame.Shadow.Raised)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(f"Template {template.title}")
+
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
-        thumb = QtWidgets.QLabel(self)
-        thumb.setFixedHeight(120)
-        pix = QtGui.QPixmap(320, 120)
-        pix.fill(QtGui.QColor("#dbeafe"))
-        painter = QtGui.QPainter(pix)
-        painter.setPen(QtGui.QPen(QtGui.QColor("#1d4ed8")))
-        painter.drawRoundedRect(6, 6, 308, 108, 12, 12)
-        painter.setPen(QtGui.QColor("#1e293b"))
-        painter.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, template.title)
-        painter.end()
-        thumb.setPixmap(pix)
-        thumb.setScaledContents(True)
-        layout.addWidget(thumb)
+        layout.setSpacing(8)
+
+        self.thumb = QtWidgets.QLabel(self)
+        self.thumb.setFixedHeight(160)
+        self.thumb.setScaledContents(True)
+        layout.addWidget(self.thumb)
+
+        self.preview_button = QtWidgets.QPushButton("Preview template", self)
+        self.preview_button.setVisible(False)
+        self.preview_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(self.preview_button)
+
         title = QtWidgets.QLabel(f"<b>{template.title}</b>")
+        title.setWordWrap(True)
         desc = QtWidgets.QLabel(template.description)
         desc.setWordWrap(True)
         layout.addWidget(title)
         layout.addWidget(desc)
         layout.addStretch()
 
+        self.preview_button.clicked.connect(lambda: self.preview_requested.emit(self.template.key))
+        self.update_preview_pixmap(preview_pixmap)
+
+    def update_preview_pixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:
+        if pixmap is None or pixmap.isNull():
+            placeholder = QtGui.QPixmap(320, 160)
+            placeholder.fill(QtGui.QColor("#dbeafe"))
+            painter = QtGui.QPainter(placeholder)
+            painter.setPen(QtGui.QPen(QtGui.QColor("#1d4ed8")))
+            painter.drawRoundedRect(6, 6, placeholder.width() - 12, placeholder.height() - 12, 14, 14)
+            painter.setPen(QtGui.QColor("#1e293b"))
+            painter.drawText(placeholder.rect(), Qt.AlignmentFlag.AlignCenter, self.template.title)
+            painter.end()
+            self.thumb.setPixmap(placeholder)
+        else:
+            self.thumb.setPixmap(pixmap.scaled(self.thumb.size(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation))
+
+    def enterEvent(self, event: QtCore.QEvent) -> None:
+        self.preview_button.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QtCore.QEvent) -> None:
+        self.preview_button.setVisible(False)
+        super().leaveEvent(event)
+
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.template.key)
         super().mouseReleaseEvent(event)
+
+
+class RecentTileList(QtWidgets.QListWidget):
+    deleteRequested = QtCore.pyqtSignal(QtWidgets.QListWidgetItem)
+
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setViewMode(QtWidgets.QListView.ViewMode.IconMode)
+        self.setResizeMode(QtWidgets.QListWidget.ResizeMode.Adjust)
+        self.setMovement(QtWidgets.QListView.Movement.Static)
+        self.setSpacing(18)
+        self.setWordWrap(True)
+        self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.setIconSize(COVER_TILE_SIZE)
+        self.setUniformItemSizes(False)
+        self.setAlternatingRowColors(False)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            item = self.currentItem()
+            if item is not None:
+                self.deleteRequested.emit(item)
+                return
+        super().keyPressEvent(event)
 
 
 class AssetListWidget(QtWidgets.QListWidget):
@@ -2699,6 +4343,10 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.resize(720, 520)
         self._project_result: Optional[Project] = None
         self._path_result: Optional[Path] = None
+        self._selected_template_key = "starter" if "starter" in PROJECT_TEMPLATES else next(iter(PROJECT_TEMPLATES))
+        self.template_cards: Dict[str, TemplateCard] = {}
+        self.template_preview: Optional[QWebEngineView] = None
+        self.template_caption: Optional[QtWidgets.QLabel] = None
 
         self.stack = QtWidgets.QStackedWidget(self)
         self.steps: List[QtWidgets.QWidget] = []
@@ -2734,6 +4382,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         self.steps.append(self._build_review())
         for step in self.steps:
             self.stack.addWidget(step)
+        self._highlight_template_cards()
+        self._update_template_preview()
 
     # Step widgets ------------------------------------------------------
     def _build_describe(self) -> QtWidgets.QWidget:
@@ -2768,24 +4418,55 @@ class NewProjectWizard(QtWidgets.QDialog):
         layout.addRow(helper)
         last = self.settings.get("last_save_dir", str(Path.home()))
         self.describe_location.setText(last)
+        self.describe_name.textChanged.connect(self._update_template_preview)
         return page
 
     def _build_template(self) -> QtWidgets.QWidget:
         page = QtWidgets.QWidget(self)
-        layout = QtWidgets.QVBoxLayout(page)
-        layout.addWidget(QtWidgets.QLabel("Choose a template"))
-        self.template_buttons = QtWidgets.QButtonGroup(self)
-        for tmpl in TEMPLATES.values():
-            radio = QtWidgets.QRadioButton(f"{tmpl.title} — {tmpl.description}")
-            radio.setProperty("template_key", tmpl.key)
-            self.template_buttons.addButton(radio)
-            layout.addWidget(radio)
-        if self.template_buttons.buttons():
-            self.template_buttons.buttons()[0].setChecked(True)
-        helper = QtWidgets.QLabel("Each template comes with pages and starter sections you can customize later.")
-        helper.setWordWrap(True)
-        layout.addWidget(helper)
-        layout.addStretch()
+        layout = QtWidgets.QHBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        list_container = QtWidgets.QWidget(page)
+        list_layout = QtWidgets.QVBoxLayout(list_container)
+        list_layout.setContentsMargins(0, 0, 0, 0)
+        list_layout.setSpacing(12)
+        list_layout.addWidget(QtWidgets.QLabel("Choose a template"))
+        cards_scroll = QtWidgets.QScrollArea(list_container)
+        cards_scroll.setWidgetResizable(True)
+        cards_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cards_widget = QtWidgets.QWidget(cards_scroll)
+        cards_layout = QtWidgets.QVBoxLayout(cards_widget)
+        cards_layout.setContentsMargins(0, 0, 0, 0)
+        cards_layout.setSpacing(12)
+        self.template_cards = {}
+        for key, tmpl in TEMPLATES.items():
+            pixmap = template_cover_pixmap(key, QtCore.QSize(320, 180))
+            card = TemplateCard(tmpl, cards_widget, preview_pixmap=pixmap)
+            card.clicked.connect(self._on_template_card_clicked)
+            card.preview_requested.connect(self._show_template_modal)
+            cards_layout.addWidget(card)
+            self.template_cards[key] = card
+        cards_layout.addStretch(1)
+        cards_widget.setLayout(cards_layout)
+        cards_scroll.setWidget(cards_widget)
+        list_layout.addWidget(cards_scroll, 1)
+        layout.addWidget(list_container, 1)
+
+        preview_container = QtWidgets.QWidget(page)
+        preview_layout = QtWidgets.QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        preview_layout.setSpacing(12)
+        preview_layout.addWidget(QtWidgets.QLabel("Live preview"))
+        self.template_preview = QWebEngineView(preview_container)
+        preview_layout.addWidget(self.template_preview, 1)
+        self.template_caption = QtWidgets.QLabel(
+            "Select a template to see its hero styling and sections with your theme."
+        )
+        self.template_caption.setWordWrap(True)
+        preview_layout.addWidget(self.template_caption)
+        layout.addWidget(preview_container, 2)
+
         return page
 
     def _build_pages(self) -> QtWidgets.QWidget:
@@ -2829,6 +4510,9 @@ class NewProjectWizard(QtWidgets.QDialog):
         helper = QtWidgets.QLabel("You can tweak colors later in the builder.")
         helper.setWordWrap(True)
         layout.addRow(helper)
+        self.theme_combo.currentTextChanged.connect(lambda _: self._update_template_preview())
+        self.heading_combo.currentTextChanged.connect(lambda _: self._update_template_preview())
+        self.body_combo.currentTextChanged.connect(lambda _: self._update_template_preview())
         return page
 
     def _build_review(self) -> QtWidgets.QWidget:
@@ -2840,6 +4524,60 @@ class NewProjectWizard(QtWidgets.QDialog):
         layout.addWidget(self.review_text, 1)
         layout.addWidget(QtWidgets.QLabel("Click Create project to open the editor."))
         return page
+
+    def _highlight_template_cards(self) -> None:
+        if not self.template_cards:
+            return
+        if self._selected_template_key not in self.template_cards:
+            self._selected_template_key = next(iter(self.template_cards))
+        for key, card in self.template_cards.items():
+            card.setStyleSheet("border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_template_key else "")
+
+    def _current_palette(self) -> Dict[str, str]:
+        theme_combo = getattr(self, "theme_combo", None)
+        theme = theme_combo.currentText() if theme_combo is not None else "Calm Sky"
+        return dict(THEME_PRESETS.get(theme, DEFAULT_PALETTE))
+
+    def _current_fonts(self) -> Dict[str, str]:
+        heading_combo = getattr(self, "heading_combo", None)
+        body_combo = getattr(self, "body_combo", None)
+        heading = heading_combo.currentText() if heading_combo is not None else DEFAULT_FONTS["heading"]
+        body = body_combo.currentText() if body_combo is not None else DEFAULT_FONTS["body"]
+        return {"heading": heading, "body": body}
+
+    def _update_template_preview(self) -> None:
+        if self.template_preview is None:
+            return
+        if self._selected_template_key not in PROJECT_TEMPLATES:
+            self._selected_template_key = "starter"
+        palette = self._current_palette()
+        fonts = self._current_fonts()
+        name_edit = getattr(self, "describe_name", None)
+        project_name = name_edit.text().strip() if name_edit is not None else ""
+        spec = PROJECT_TEMPLATES.get(self._selected_template_key, PROJECT_TEMPLATES["starter"])
+        display_name = project_name or spec.name
+        html = template_preview_html(self._selected_template_key, display_name, palette, fonts)
+        self.template_preview.setHtml(html)
+        if self.template_caption is not None:
+            self.template_caption.setText(f"<b>{spec.name}</b> — {spec.description}")
+
+    def _on_template_card_clicked(self, key: str) -> None:
+        self._selected_template_key = key
+        self._highlight_template_cards()
+        self._update_template_preview()
+
+    def _show_template_modal(self, key: str) -> None:
+        palette = self._current_palette()
+        fonts = self._current_fonts()
+        spec = PROJECT_TEMPLATES.get(key, PROJECT_TEMPLATES["starter"])
+        definition = TEMPLATES.get(key)
+        title = definition.title if definition else spec.name
+        name_edit = getattr(self, "describe_name", None)
+        display_name = name_edit.text().strip() if name_edit is not None else ""
+        html = template_preview_html(key, display_name or title, palette, fonts)
+        dialog = TemplatePreviewDialog(title, self)
+        dialog.set_preview_html(html)
+        dialog.exec()
 
     # Navigation --------------------------------------------------------
     def _update_buttons(self) -> None:
@@ -2909,10 +4647,9 @@ class NewProjectWizard(QtWidgets.QDialog):
             if validate:
                 QtWidgets.QMessageBox.warning(self, "Missing location", "Choose where to save the project.")
             return None, None
-        template_key = "starter"
-        for btn in self.template_buttons.buttons():
-            if btn.isChecked():
-                template_key = str(btn.property("template_key"))
+        template_key = self._selected_template_key or "starter"
+        if template_key not in PROJECT_TEMPLATES:
+            template_key = "starter"
         selected_pages: List[str] = []
         page_titles: Dict[str, str] = {}
         for box, edit in self.page_checks:
@@ -3041,6 +4778,23 @@ def placeholder_images() -> List[AssetImage]:
         )
     return images
 
+
+def generate_svg_placeholder(width: int, height: int, palette: Dict[str, str]) -> str:
+    primary = palette.get("primary", DEFAULT_PALETTE["primary"])
+    surface = palette.get("surface", DEFAULT_PALETTE["surface"])
+    text = palette.get("text", DEFAULT_PALETTE["text"])
+    return (
+        f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>"
+        f"<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
+        f"<stop offset='0%' stop-color='{primary}' stop-opacity='0.85'/><stop offset='100%' stop-color='{primary}' stop-opacity='0.35'/></linearGradient></defs>"
+        f"<rect width='100%' height='100%' fill='{surface}'/><rect x='{width*0.05}' y='{height*0.1}' rx='{width*0.04}' ry='{width*0.04}' width='{width*0.9}' height='{height*0.8}' fill='url(#g)' opacity='0.65'/>"
+        f"<rect x='{width*0.08}' y='{height*0.18}' width='{width*0.35}' height='{height*0.05}' rx='{height*0.02}' fill='{primary}' opacity='0.35'/>"
+        f"<rect x='{width*0.08}' y='{height*0.28}' width='{width*0.5}' height='{height*0.06}' rx='{height*0.02}' fill='{primary}' opacity='0.28'/>"
+        f"<rect x='{width*0.08}' y='{height*0.38}' width='{width*0.45}' height='{height*0.05}' rx='{height*0.02}' fill='{primary}' opacity='0.18'/>"
+        f"<text x='{width/2}' y='{height*0.65}' text-anchor='middle' fill='{text}' font-family='Inter, sans-serif' font-size='{max(18, width*0.04)}' font-weight='600' opacity='0.75'>Hero placeholder {width}×{height}</text>"
+        "</svg>"
+    )
+
 # ---------------------------------------------------------------------------
 # Start window (launch hub)
 # ---------------------------------------------------------------------------
@@ -3069,7 +4823,6 @@ class StartWindow(QtWidgets.QMainWindow):
         self._selected_template = "starter"
         self._page_checks = {}
         self._page_edits = {}
-        self._recent_widgets = {}
 
         central = QtWidgets.QWidget(self)
         outer = QtWidgets.QHBoxLayout(central)
@@ -3120,10 +4873,43 @@ class StartWindow(QtWidgets.QMainWindow):
 
     def _build_create_page(self) -> QtWidgets.QWidget:
         page = QtWidgets.QWidget(self)
-        layout = QtWidgets.QVBoxLayout(page)
+        outer = QtWidgets.QHBoxLayout(page)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        command_frame = QtWidgets.QFrame(page)
+        command_frame.setFixedWidth(240)
+        command_layout = QtWidgets.QVBoxLayout(command_frame)
+        command_layout.setContentsMargins(24, 32, 24, 32)
+        command_layout.setSpacing(12)
+        command_layout.addWidget(QtWidgets.QLabel("<h2>Start</h2>"))
+        self.btn_command_create = QtWidgets.QPushButton("Create New Project")
+        self.btn_command_create.setMinimumHeight(44)
+        self.btn_command_open = QtWidgets.QPushButton("Open…")
+        self.btn_command_open.setMinimumHeight(40)
+        self.btn_command_import = QtWidgets.QPushButton("Import Website…")
+        self.btn_command_import.setMinimumHeight(40)
+        command_layout.addWidget(self.btn_command_create)
+        command_layout.addWidget(self.btn_command_open)
+        command_layout.addWidget(self.btn_command_import)
+        command_layout.addStretch()
+        outer.addWidget(command_frame)
+
+        scroll = QtWidgets.QScrollArea(page)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        outer.addWidget(scroll, 1)
+
+        content = QtWidgets.QWidget(scroll)
+        scroll.setWidget(content)
+        layout = QtWidgets.QVBoxLayout(content)
         layout.setContentsMargins(40, 32, 40, 32)
-        title = QtWidgets.QLabel("<h1>Welcome! Let's make something new.</h1>")
-        subtitle = QtWidgets.QLabel("Choose a look, add pages, and jump in. You can always change things later.")
+        layout.setSpacing(24)
+
+        title = QtWidgets.QLabel("<h1>Welcome! Let's build something beautiful.</h1>")
+        subtitle = QtWidgets.QLabel(
+            "Pick a template, tune the theme, and jump into the builder with polished starter content."
+        )
         subtitle.setWordWrap(True)
         layout.addWidget(title)
         layout.addWidget(subtitle)
@@ -3133,77 +4919,103 @@ class StartWindow(QtWidgets.QMainWindow):
         purpose_row = QtWidgets.QHBoxLayout()
         radio_buttons = []
         for option in ["Landing", "Portfolio", "Resource", "Other"]:
-            btn = QtWidgets.QRadioButton(option, page)
+            btn = QtWidgets.QRadioButton(option, content)
             btn.setMinimumHeight(36)
             self.quick_purpose.addButton(btn)
             radio_buttons.append((btn, option))
             purpose_row.addWidget(btn)
-        self.quick_purpose.buttons()[0].setChecked(True)
+        if self.quick_purpose.buttons():
+            self.quick_purpose.buttons()[0].setChecked(True)
         purpose_row.addStretch()
         layout.addLayout(purpose_row)
-        # ...existing code for form, template, pages, theme, etc...
-        # Connect signals after all UI elements are initialized
         for btn, option in radio_buttons:
             btn.toggled.connect(lambda checked, text=option: self._quick_purpose_changed(text, checked))
 
-        form = QtWidgets.QFormLayout()
-        self.create_name = QtWidgets.QLineEdit(page)
+        form_group = QtWidgets.QGroupBox("Project details", content)
+        form = QtWidgets.QFormLayout(form_group)
+        self.create_name = QtWidgets.QLineEdit(form_group)
         self.create_name.setPlaceholderText("Project name")
         self.create_name.setText("My Site")
-        self.create_location = QtWidgets.QLineEdit(page)
+        self.create_location = QtWidgets.QLineEdit(form_group)
         self.create_location.setPlaceholderText("Where to save the .siteproj file")
         self.create_location.setText(self.settings.get("last_save_dir", str(Path.home())))
-        browse = QtWidgets.QPushButton("Browse…", page)
+        browse = QtWidgets.QPushButton("Browse…", form_group)
         browse.clicked.connect(self._browse_save_location)
         location_layout = QtWidgets.QHBoxLayout()
         location_layout.addWidget(self.create_location)
         location_layout.addWidget(browse)
         form.addRow("Project name", self.create_name)
         form.addRow("Save location", location_layout)
-        layout.addLayout(form)
+        layout.addWidget(form_group)
 
-        layout.addWidget(QtWidgets.QLabel("Template"))
-        template_grid = QtWidgets.QGridLayout()
-        template_grid.setSpacing(16)
-        row = col = 0
-        self.template_cards: Dict[str, TemplateCard] = {}
-        for tmpl in TEMPLATES.values():
-            card = TemplateCard(tmpl, page)
+        recents_header = QtWidgets.QHBoxLayout()
+        recents_header.addWidget(QtWidgets.QLabel("<h2>Recent projects</h2>"))
+        self.btn_purge_tiles = QtWidgets.QPushButton("Remove missing")
+        recents_header.addStretch()
+        recents_header.addWidget(self.btn_purge_tiles)
+        layout.addLayout(recents_header)
+
+        self.recent_tiles = RecentTileList(content)
+        self.recent_tiles.setIconSize(COVER_TILE_SIZE)
+        layout.addWidget(self.recent_tiles)
+
+        layout.addWidget(QtWidgets.QLabel("<h2>Template gallery</h2>"))
+        gallery_scroll = QtWidgets.QScrollArea(content)
+        gallery_scroll.setWidgetResizable(True)
+        gallery_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        gallery_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        gallery_widget = QtWidgets.QWidget(gallery_scroll)
+        self.template_gallery_layout = QtWidgets.QHBoxLayout(gallery_widget)
+        self.template_gallery_layout.setContentsMargins(0, 0, 0, 0)
+        self.template_gallery_layout.setSpacing(16)
+        self.template_cards = {}
+        for key, tmpl in TEMPLATES.items():
+            pixmap = self._template_preview_pixmap(key)
+            card = TemplateCard(tmpl, gallery_widget, preview_pixmap=pixmap)
             card.clicked.connect(self._on_template_selected)
-            template_grid.addWidget(card, row, col)
-            self.template_cards[tmpl.key] = card
-            col += 1
-            if col == 2:
-                col = 0
-                row += 1
-        layout.addLayout(template_grid)
+            card.preview_requested.connect(self._show_template_preview)
+            self.template_gallery_layout.addWidget(card)
+            self.template_cards[key] = card
+        self.template_gallery_layout.addStretch(1)
+        gallery_scroll.setWidget(gallery_widget)
+        layout.addWidget(gallery_scroll)
 
-        layout.addWidget(QtWidgets.QLabel("Add pages"))
-        page_options = QtWidgets.QHBoxLayout()
-        for label in ["About", "Projects", "Docs", "Contact", "Blog", "Pricing", "FAQ", "Updates"]:
-            check = QtWidgets.QCheckBox(label, page)
+        self.template_caption = QtWidgets.QLabel("Select a template to see details and update the live preview.")
+        self.template_caption.setWordWrap(True)
+        layout.addWidget(self.template_caption)
+
+        pages_group = QtWidgets.QGroupBox("Add starter pages", content)
+        pages_layout = QtWidgets.QGridLayout(pages_group)
+        self._page_checks.clear()
+        self._page_edits.clear()
+        labels = ["About", "Projects", "Docs", "Contact", "Blog", "Pricing", "FAQ", "Updates"]
+        for idx, label in enumerate(labels):
+            check = QtWidgets.QCheckBox(label, pages_group)
             if label in ("About", "Contact"):
                 check.setChecked(True)
-            self._page_checks[label] = check
-            edit = QtWidgets.QLineEdit(label, page)
+            edit = QtWidgets.QLineEdit(label, pages_group)
             edit.setPlaceholderText(f"{label} title")
-            edit.setMaximumWidth(160)
+            edit.setMaximumWidth(180)
+            self._page_checks[label] = check
             self._page_edits[label] = edit
+            col = idx % 4
+            row = idx // 4
             column = QtWidgets.QVBoxLayout()
             column.addWidget(check)
             column.addWidget(edit)
-            page_options.addLayout(column)
-        page_options.addStretch()
-        layout.addLayout(page_options)
+            container = QtWidgets.QWidget(pages_group)
+            container.setLayout(column)
+            pages_layout.addWidget(container, row, col)
+        layout.addWidget(pages_group)
 
-        layout.addWidget(QtWidgets.QLabel("Theme & fonts"))
-        theme_layout = QtWidgets.QHBoxLayout()
-        self.create_theme = QtWidgets.QComboBox(page)
+        theme_group = QtWidgets.QGroupBox("Theme & fonts", content)
+        theme_layout = QtWidgets.QHBoxLayout(theme_group)
+        self.create_theme = QtWidgets.QComboBox(theme_group)
         self.create_theme.addItems(list(THEME_PRESETS.keys()))
         self.create_theme.setCurrentText("Calm Sky")
-        self.heading_font_combo = QtWidgets.QComboBox(page)
+        self.heading_font_combo = QtWidgets.QComboBox(theme_group)
         self.heading_font_combo.addItems(FONT_STACKS)
-        self.body_font_combo = QtWidgets.QComboBox(page)
+        self.body_font_combo = QtWidgets.QComboBox(theme_group)
         self.body_font_combo.addItems(FONT_STACKS)
         theme_layout.addWidget(QtWidgets.QLabel("Theme"))
         theme_layout.addWidget(self.create_theme)
@@ -3211,28 +5023,65 @@ class StartWindow(QtWidgets.QMainWindow):
         theme_layout.addWidget(self.heading_font_combo)
         theme_layout.addWidget(QtWidgets.QLabel("Body font"))
         theme_layout.addWidget(self.body_font_combo)
-        layout.addLayout(theme_layout)
+        layout.addWidget(theme_group)
 
-        button_row = QtWidgets.QHBoxLayout()
-        self.btn_make_plan = QtWidgets.QPushButton("Make it for me")
-        self.btn_make_plan.setMinimumHeight(44)
-        self.btn_make_plan.clicked.connect(self._run_make_it_for_me)
-        self.btn_open_wizard = QtWidgets.QPushButton("Wizard…")
-        self.btn_open_wizard.setMinimumHeight(44)
-        self.btn_open_wizard.clicked.connect(self._launch_wizard)
-        self.btn_create_project = QtWidgets.QPushButton("Create")
-        self.btn_create_project.setMinimumHeight(48)
-        self.btn_create_project.setStyleSheet("font-size: 16px; font-weight: 600;")
+        self.create_summary = QtWidgets.QLabel(
+            "Select a template, adjust options, and click Create to open the builder with rich starting pages."
+        )
+        self.create_summary.setWordWrap(True)
+        layout.addWidget(self.create_summary)
+
+        self.btn_create_project = QtWidgets.QPushButton("Create project", content)
+        self.btn_create_project.setMinimumHeight(44)
         self.btn_create_project.clicked.connect(self._create_project)
-        button_row.addWidget(self.btn_make_plan)
-        button_row.addWidget(self.btn_open_wizard)
-        button_row.addStretch()
-        button_row.addWidget(self.btn_create_project)
-        layout.addLayout(button_row)
+        layout.addWidget(self.btn_create_project)
         layout.addStretch()
 
+        self.btn_command_create.clicked.connect(self._create_project)
+        self.btn_command_open.clicked.connect(self._browse_open_file)
+        self.btn_command_import.clicked.connect(self._browse_import_file)
+        self.btn_purge_tiles.clicked.connect(self._purge_missing)
+        self.recent_tiles.itemActivated.connect(self._open_recent_tile)
+        self.recent_tiles.deleteRequested.connect(self._remove_recent_tile)
+
         self._on_template_selected(self._selected_template)
-        return self._wrap_scroll(page)
+        return page
+
+    def _template_preview_pixmap(self, key: str) -> QtGui.QPixmap:
+        return template_cover_pixmap(key, COVER_TILE_SIZE)
+
+    def _show_template_preview(self, key: str) -> None:
+        spec = PROJECT_TEMPLATES.get(key, PROJECT_TEMPLATES["starter"])
+        theme = self.create_theme.currentText() if hasattr(self, "create_theme") else "Calm Sky"
+        palette = dict(THEME_PRESETS.get(theme, spec.palette or DEFAULT_PALETTE))
+        fonts = {
+            "heading": self.heading_font_combo.currentText() if hasattr(self, "heading_font_combo") else DEFAULT_FONTS["heading"],
+            "body": self.body_font_combo.currentText() if hasattr(self, "body_font_combo") else DEFAULT_FONTS["body"],
+        }
+        name = self.create_name.text().strip() if hasattr(self, "create_name") else spec.name
+        html = template_preview_html(key, name or spec.name, palette, fonts)
+        dialog = TemplatePreviewDialog(TEMPLATES[key].title, self)
+        dialog.set_preview_html(html)
+        dialog.exec()
+
+    def _open_recent_tile(self, item: QtWidgets.QListWidgetItem) -> None:
+        path_str = str(item.data(Qt.ItemDataRole.UserRole))
+        if not path_str:
+            return
+        path = Path(path_str)
+        if not path.exists():
+            QtWidgets.QMessageBox.warning(self, "Missing", "This project file is missing. Removing from list.")
+            self.recents.remove(path_str)
+            self.refresh_recents()
+            return
+        self._open_project_from_path(path)
+
+    def _remove_recent_tile(self, item: QtWidgets.QListWidgetItem) -> None:
+        path_str = str(item.data(Qt.ItemDataRole.UserRole))
+        if not path_str:
+            return
+        self.recents.remove(path_str)
+        self.refresh_recents()
 
     def _build_open_page(self) -> QtWidgets.QWidget:
         page = QtWidgets.QWidget(self)
@@ -3329,6 +5178,9 @@ class StartWindow(QtWidgets.QMainWindow):
                 card.setStyleSheet("border: 2px solid #2563eb; border-radius: 12px;")
             else:
                 card.setStyleSheet("")
+        template = TEMPLATES[key]
+        if hasattr(self, "template_caption"):
+            self.template_caption.setText(f"<b>{template.title}</b> — {template.description}")
         self.status_bar.showMessage(f"Template set to {TEMPLATES[key].title}", 4000)
 
     def _browse_save_location(self) -> None:
@@ -3436,8 +5288,11 @@ class StartWindow(QtWidgets.QMainWindow):
             return
         self.recents.add_or_bump(project_path, project)
         thumb = write_project_thumbnail(project, project_path)
-        if thumb:
-            self.recents.set_thumbnail(project_path, thumb)
+        tile_path = Path(project.cover_tile_path) if project.cover_tile_path else thumb
+        if project.cover_path:
+            self.recents.set_cover(project_path, Path(project.cover_path), tile_path=tile_path)
+        elif tile_path:
+            self.recents.set_thumbnail(project_path, tile_path)
         self.project_opened.emit(project, project_path)
         self.close()
 
@@ -3511,18 +5366,36 @@ class StartWindow(QtWidgets.QMainWindow):
 
     def refresh_recents(self) -> None:
         self.recents.load()
-        if not hasattr(self, 'recent_list'):
+        items = self.recents.list()
+        if hasattr(self, "recent_tiles"):
+            self.recent_tiles.clear()
+            for entry in items:
+                display = f"📌 {entry.name}" if entry.pinned else entry.name
+                tile = QtWidgets.QListWidgetItem(display)
+                tile.setData(Qt.ItemDataRole.UserRole, entry.path)
+                tooltip = f"{entry.path}\nLast opened: {entry.last_opened}"
+                tile.setToolTip(tooltip)
+                icon_path = entry.cover or entry.thumbnail
+                if icon_path and Path(icon_path).exists():
+                    tile.setIcon(QtGui.QIcon(icon_path))
+                else:
+                    fallback = self._template_preview_pixmap(self._selected_template)
+                    tile.setIcon(QtGui.QIcon(fallback))
+                tile.setData(Qt.ItemDataRole.AccessibleTextRole, display)
+                self.recent_tiles.addItem(tile)
+        if not hasattr(self, "recent_list"):
             return
         self.recent_list.clear()
-        for item in self.recents.list():
+        for item in items:
             list_item = QtWidgets.QListWidgetItem(item.name)
             list_item.setData(Qt.ItemDataRole.UserRole, item.path)
             subtitle = f"{item.path}\nLast opened: {item.last_opened}"
             if item.pinned:
                 subtitle = "📌 " + subtitle
             list_item.setToolTip(subtitle)
-            if item.thumbnail and Path(item.thumbnail).exists():
-                list_item.setIcon(QtGui.QIcon(item.thumbnail))
+            icon_path = item.thumbnail or item.cover
+            if icon_path and Path(icon_path).exists():
+                list_item.setIcon(QtGui.QIcon(icon_path))
             self.recent_list.addItem(list_item)
 
     def _open_recent_item(self, item: QtWidgets.QListWidgetItem) -> None:
@@ -3601,6 +5474,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._debounce.setInterval(400)
         self._debounce.setSingleShot(True)
         self._debounce.timeout.connect(self.update_preview)
+        self._last_cover_palette_hash: str = ""
+        self._last_cover_content_hash: str = ""
 
         self._build_ui()
         self._build_menu()
@@ -3900,6 +5775,15 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row.addWidget(self.btn_remove_asset)
         button_row.addStretch()
         layout.addLayout(button_row)
+        action_row = QtWidgets.QHBoxLayout()
+        self.btn_set_cover_image = QtWidgets.QPushButton("Set as Cover Image")
+        self.btn_set_cover_image.setToolTip("Use the selected asset as the hero photo for cover art.")
+        self.btn_generate_placeholder = QtWidgets.QPushButton("Generate placeholder…")
+        self.btn_generate_placeholder.setToolTip("Create an inline SVG placeholder image for hero areas.")
+        action_row.addWidget(self.btn_set_cover_image)
+        action_row.addWidget(self.btn_generate_placeholder)
+        action_row.addStretch()
+        layout.addLayout(action_row)
         self.asset_list = AssetListWidget(tab)
         self.asset_list.filesDropped.connect(self._import_assets)
         self.asset_list.currentRowChanged.connect(self._show_asset_preview)
@@ -4031,6 +5915,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_add_asset.clicked.connect(self._browse_assets)
         self.btn_rename_asset.clicked.connect(self._rename_asset)
         self.btn_remove_asset.clicked.connect(self._remove_asset)
+        self.btn_set_cover_image.clicked.connect(self._set_cover_image_from_asset)
+        self.btn_generate_placeholder.clicked.connect(self._generate_placeholder_asset)
         self.btn_insert_image.clicked.connect(self._insert_image_dialog)
         self.act_new.triggered.connect(lambda: self.maybe_save_before("creating a new project") and self.new_project_bootstrap())
         self.act_open.triggered.connect(lambda: self.maybe_save_before("opening another project") and self.open_project_dialog())
@@ -4065,6 +5951,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.shortcut_motion.activated.connect(self.wrap_selection_default_motion)
 
     def _load_project_into_ui(self) -> None:
+        self._last_cover_palette_hash = ""
+        self._last_cover_content_hash = ""
         self._refresh_pages_list()
         self._current_page_index = -1
         self._flush_row_override = None
@@ -4151,12 +6039,16 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog = TemplateSelectDialog(self, PROJECT_TEMPLATES)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        template_key, site_name = dialog.result()
-        if not template_key or not site_name:
+        selection = dialog.result()
+        if selection is None:
             return
+        template_key = selection.template_key
+        site_name = selection.project_name
         spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
         palette = dict(spec.palette or DEFAULT_PALETTE)
+        palette.update(selection.palette)
         fonts = dict(spec.fonts or DEFAULT_FONTS)
+        fonts.update(selection.fonts)
         css = generate_base_css(palette, fonts)
         if spec.include_helpers:
             css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
@@ -4175,7 +6067,7 @@ class MainWindow(QtWidgets.QMainWindow):
             template_key=template_key,
             images=placeholder_images(),
         )
-        project.theme_preset = next((key for key, val in THEME_PRESETS.items() if val == palette), "Custom")
+        project.theme_preset = selection.theme if selection.theme in THEME_PRESETS else "Custom"
         self.project = project
         self.project_path = None
         self.update_window_title()
@@ -4273,6 +6165,40 @@ class MainWindow(QtWidgets.QMainWindow):
             file_path = Path(self._preview_tmp) / page.filename
             self.preview.setUrl(QtCore.QUrl.fromLocalFile(str(file_path)))
         self.status_bar.showMessage("Preview updated", 1500)
+        self._maybe_render_cover()
+
+    def _cover_signatures(self) -> Tuple[str, str]:
+        if not self.project:
+            return "", ""
+        palette_payload = {
+            "palette": self.project.palette,
+            "fonts": self.project.fonts,
+            "theme": self.project.theme_preset,
+            "radius": self.project.radius_scale,
+            "shadow": self.project.shadow_level,
+            "cover_asset": self.project.cover_asset_name or "",
+            "template": self.project.template_key,
+        }
+        palette_hash = hashlib.sha1(json.dumps(palette_payload, sort_keys=True).encode("utf-8")).hexdigest()
+        first_html = self.project.pages[0].html if self.project.pages else ""
+        css = self.project.css or ""
+        content_hash = hashlib.sha1((first_html + "\n---\n" + css).encode("utf-8")).hexdigest()
+        return palette_hash, content_hash
+
+    def _maybe_render_cover(self, *, force: bool = False) -> None:
+        if not self.project:
+            return
+        palette_hash, content_hash = self._cover_signatures()
+        if not force and palette_hash == self._last_cover_palette_hash and content_hash == self._last_cover_content_hash:
+            return
+        thumb = write_project_thumbnail(self.project, self.project_path)
+        tile_path = Path(self.project.cover_tile_path) if self.project.cover_tile_path else thumb
+        if self.project_path and self.project.cover_path:
+            self.recents.set_cover(self.project_path, Path(self.project.cover_path), tile_path=tile_path)
+        elif self.project_path and tile_path:
+            self.recents.set_thumbnail(self.project_path, tile_path)
+        self._last_cover_palette_hash = palette_hash
+        self._last_cover_content_hash = content_hash
 
     def wrap_selection_with(self, prefix: str, suffix: str) -> None:
         cursor = self.html_editor.textCursor()
@@ -4681,6 +6607,58 @@ class MainWindow(QtWidgets.QMainWindow):
         self.html_editor.setTextCursor(cursor)
         self.update_preview()
 
+    def _set_cover_image_from_asset(self) -> None:
+        if not self.project or not self.project.images:
+            return
+        row = self.asset_list.currentRow()
+        if row < 0 or row >= len(self.project.images):
+            QtWidgets.QMessageBox.information(self, "Select image", "Choose an image to use as the cover.")
+            return
+        asset = self.project.images[row]
+        self.project.cover_asset_name = asset.name
+        self._maybe_render_cover(force=True)
+        self.set_dirty(True)
+        self.status_bar.showMessage(f"{asset.name} set as cover image", 3000)
+
+    def _generate_placeholder_asset(self) -> None:
+        if not self.project:
+            return
+        presets = ["1280×720", "1600×900", "1920×1080", "Custom…"]
+        choice, ok = QtWidgets.QInputDialog.getItem(
+            self,
+            "Placeholder size",
+            "Choose a placeholder size",
+            presets,
+            0,
+            False,
+        )
+        if not ok or not choice:
+            return
+        if "×" in choice and choice != "Custom…":
+            parts = choice.replace("×", "x").split("x")
+            try:
+                width, height = int(parts[0]), int(parts[1])
+            except (ValueError, IndexError):
+                width, height = 1280, 720
+        else:
+            width, ok_w = QtWidgets.QInputDialog.getInt(self, "Width", "Placeholder width (px)", value=1280, min=100, max=4000)
+            if not ok_w:
+                return
+            height, ok_h = QtWidgets.QInputDialog.getInt(self, "Height", "Placeholder height (px)", value=720, min=100, max=4000)
+            if not ok_h:
+                return
+        svg = generate_svg_placeholder(width, height, self.project.palette)
+        data = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        name = self._unique_asset_name(f"placeholder-{width}x{height}.svg")
+        asset = AssetImage(name=name, data_base64=data, width=width, height=height, mime="image/svg+xml")
+        self.project.images.append(asset)
+        self._refresh_assets()
+        self.set_dirty(True)
+        self.status_bar.showMessage(f"Placeholder {width}×{height} added", 4000)
+        data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        QtWidgets.QApplication.clipboard().setText(data_uri)
+        self._maybe_render_cover(force=True)
+
     # File operations ---------------------------------------------------
     def open_project_dialog(self) -> None:
         self._flush_editors_to_model()
@@ -4706,17 +6684,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self._load_project_into_ui()
         self.update_window_title()
         self.update_preview()
+        self._maybe_render_cover(force=True)
         self.set_dirty(False)
         self.recents.add_or_bump(self.project_path, self.project)
-        thumb = write_project_thumbnail(self.project, self.project_path)
-        if thumb:
-            self.recents.set_thumbnail(self.project_path, thumb)
+        tile_path = Path(self.project.cover_tile_path) if self.project.cover_tile_path else None
+        if self.project.cover_path:
+            self.recents.set_cover(self.project_path, Path(self.project.cover_path), tile_path=tile_path)
+        elif tile_path:
+            self.recents.set_thumbnail(self.project_path, tile_path)
 
     def save_project(self) -> None:
         if self.project_path is None:
             self.save_project_as()
             return
         self._flush_editors_to_model()
+        self._maybe_render_cover(force=True)
         try:
             save_project(self.project_path, self.project)
         except Exception as exc:
@@ -4724,9 +6706,11 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         self.status_bar.showMessage("Project saved", 2000)
         self.recents.add_or_bump(self.project_path, self.project)
-        thumb = write_project_thumbnail(self.project, self.project_path)
-        if thumb:
-            self.recents.set_thumbnail(self.project_path, thumb)
+        tile_path = Path(self.project.cover_tile_path) if self.project.cover_tile_path else None
+        if self.project.cover_path:
+            self.recents.set_cover(self.project_path, Path(self.project.cover_path), tile_path=tile_path)
+        elif tile_path:
+            self.recents.set_thumbnail(self.project_path, tile_path)
         self.set_dirty(False)
 
     def save_project_as(self) -> None:
@@ -4747,6 +6731,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def export_project(self) -> None:
         self._flush_editors_to_model()
+        self._maybe_render_cover(force=True)
         out_dir = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Export site",
@@ -4766,6 +6751,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.project:
             return
         self._flush_editors_to_model()
+        self._maybe_render_cover(force=True)
         out_zip, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save ZIP as…",
@@ -5059,8 +7045,11 @@ class AppController(QtCore.QObject):
         if path is not None:
             self.recents.add_or_bump(path, project)
             thumb = write_project_thumbnail(project, path)
-            if thumb:
-                self.recents.set_thumbnail(path, thumb)
+            tile_path = Path(project.cover_tile_path) if project.cover_tile_path else thumb
+            if project.cover_path:
+                self.recents.set_cover(path, Path(project.cover_path), tile_path=tile_path)
+            elif tile_path:
+                self.recents.set_thumbnail(path, tile_path)
         if self.start_window is not None:
             self.start_window.close()
             self.start_window = None
