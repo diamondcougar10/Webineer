@@ -8,14 +8,16 @@ import re
 import shutil
 import sys
 import tempfile
+import webbrowser
+import zipfile
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from jinja2 import DictLoader, Environment, select_autoescape
 
@@ -34,6 +36,17 @@ def ensure_app_icon(widget: QtWidgets.QWidget) -> None:
     icon_path = Path(APP_ICON_PATH)
     if icon_path.exists():
         widget.setWindowIcon(QtGui.QIcon(str(icon_path)))
+
+
+def open_url(url: str) -> None:
+    """Open a URL using the desktop services with a webbrowser fallback."""
+    try:
+        qurl = QUrl(url)
+        if qurl.isValid() and QDesktopServices.openUrl(qurl):
+            return
+    except Exception:
+        pass
+    webbrowser.open(url)
 
 
 def app_data_dir() -> Path:
@@ -2770,11 +2783,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project_path = project_path
         self.recents = recents
         self.settings = settings
-        self.setWindowTitle(f"{APP_TITLE} — {project.name}")
         self.resize(1280, 820)
 
         self._current_page_index: int = -1
         self._flush_row_override: Optional[int] = None
+        self._dirty: bool = False
+
+        self._ai_threads: List[QThread] = []
+        self._ai_workers: List[QObject] = []
+        self.ai_dock: Optional[QtWidgets.QDockWidget] = None
+        self.ai_prompt: Optional[QtWidgets.QPlainTextEdit] = None
+        self.ai_output: Optional[QtWidgets.QPlainTextEdit] = None
 
         self._preview_tmp: Optional[str] = None
         self._debounce = QtCore.QTimer(self)
@@ -2786,9 +2805,45 @@ class MainWindow(QtWidgets.QMainWindow):
         self._build_menu()
         self._bind_events()
         self._load_project_into_ui()
+        self.update_window_title()
         self.update_preview()
 
     # UI setup ----------------------------------------------------------
+    def set_dirty(self, dirty: bool = True) -> None:
+        self._dirty = dirty
+        self.update_window_title()
+
+    def maybe_save_before(self, action_label: str) -> bool:
+        """Return True to proceed, False to abort (user chose Cancel)."""
+        if not self._dirty:
+            return True
+        name = self.project.name if self.project else "Untitled"
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setWindowTitle("Unsaved changes")
+        box.setText(f"Save changes to “{name}” before {action_label}?")
+        box.setInformativeText("If you don’t save, your changes will be lost.")
+        save_btn = box.addButton("Save", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        discard_btn = box.addButton("Don’t Save", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        cancel_btn = box.addButton("Cancel", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(save_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is save_btn:
+            self.save_project()
+            return not self._dirty
+        if clicked is discard_btn:
+            self.set_dirty(False)
+            return True
+        return False
+
+    def update_window_title(self) -> None:
+        name = self.project.name if self.project else "Untitled"
+        suffix = f" ({self.project_path.name})" if self.project_path else ""
+        dirty = " •" if getattr(self, "_dirty", False) else ""
+        self.setWindowTitle(f"{APP_TITLE} — {name}{suffix}{dirty}")
+
     def _build_ui(self) -> None:
         splitter = QtWidgets.QSplitter(self)
         splitter.setOrientation(Qt.Orientation.Horizontal)
@@ -2952,13 +3007,37 @@ class MainWindow(QtWidgets.QMainWindow):
                     action.triggered.connect(lambda checked=False, k=key: self.insert_snippet(k, section=False))
                     self.menu_components.addAction(action)
 
+        m_publish = bar.addMenu("&Publish")
+        self.act_publish = QtGui.QAction("Publish…", self)
+        if m_publish is not None:
+            m_publish.addAction(self.act_publish)
+
+        m_resources = bar.addMenu("&Resources")
+
+        if m_resources is not None:
+            def add_link(caption: str, url: str) -> None:
+                act = QtGui.QAction(caption, self)
+                act.triggered.connect(lambda checked=False, link=url: open_url(link))
+                m_resources.addAction(act)
+
+            add_link("MDN HTML reference", "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference")
+            add_link("MDN CSS reference", "https://developer.mozilla.org/en-US/docs/Web/CSS/Reference")
+            add_link("Learn CSS (web.dev)", "https://web.dev/learn/css/")
+            add_link("Flexbox guide (CSS-Tricks)", "https://css-tricks.com/snippets/css/a-guide-to-flexbox/")
+            add_link("Grid garden (Game)", "https://cssgridgarden.com/")
+            add_link("Accessibility basics (web.dev)", "https://web.dev/learn/accessibility/")
+            add_link("GitHub Pages quickstart", "https://docs.github.com/en/pages/quickstart")
+            add_link("Domain name ideas (LeanDomainSearch)", "https://leandomainsearch.com/")
+
         help_menu = bar.addMenu("&Help")
         self.act_about = QtGui.QAction("About", self)
         self.act_get_started = QtGui.QAction("Get Started", self)
+        self.act_ai = QtGui.QAction("AI Project Help", self)
         self.act_about.setShortcut("F1")
         if help_menu is not None:
             help_menu.addAction(self.act_about)
             help_menu.addAction(self.act_get_started)
+            help_menu.addAction(self.act_ai)
 
     def _bind_events(self) -> None:
         self.pages_list.currentRowChanged.connect(self._on_page_selected)
@@ -2972,8 +3051,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_rename_asset.clicked.connect(self._rename_asset)
         self.btn_remove_asset.clicked.connect(self._remove_asset)
         self.btn_insert_image.clicked.connect(self._insert_image_dialog)
-        self.act_new.triggered.connect(self.new_project_bootstrap)
-        self.act_open.triggered.connect(self.open_project_dialog)
+        self.act_new.triggered.connect(lambda: self.maybe_save_before("creating a new project") and self.new_project_bootstrap())
+        self.act_open.triggered.connect(lambda: self.maybe_save_before("opening another project") and self.open_project_dialog())
         self.act_save.triggered.connect(self.save_project)
         self.act_save_as.triggered.connect(self.save_project_as)
         self.act_export.triggered.connect(self.export_project)
@@ -2981,6 +3060,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_start.triggered.connect(lambda: self.controller.show_start_from_main("Recent"))
         self.act_about.triggered.connect(self.show_about)
         self.act_get_started.triggered.connect(self._open_help_page)
+        self.act_publish.triggered.connect(self.open_publish_dialog)
+        self.act_ai.triggered.connect(self.toggle_ai_dock)
 
     def _load_project_into_ui(self) -> None:
         self._refresh_pages_list()
@@ -3003,6 +3084,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.design_heading_font.setCurrentText(self.project.fonts.get("heading", FONT_STACKS[0]))
         self.design_body_font.setCurrentText(self.project.fonts.get("body", FONT_STACKS[0]))
         self._refresh_assets()
+        self.update_window_title()
 
     # Page management ---------------------------------------------------
     def _refresh_pages_list(self) -> None:
@@ -3044,9 +3126,10 @@ class MainWindow(QtWidgets.QMainWindow):
         project.theme_preset = next((key for key, val in THEME_PRESETS.items() if val == palette), "Custom")
         self.project = project
         self.project_path = None
-        self.setWindowTitle(f"{APP_TITLE} — {project.name}")
+        self.update_window_title()
         self._load_project_into_ui()
         self.update_preview()
+        self.set_dirty(False)
 
     def add_page(self) -> None:
         self._flush_editors_to_model()
@@ -3070,6 +3153,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.html_editor.setPlainText(html)
         self.html_editor.blockSignals(False)
         self.update_preview()
+        self.set_dirty(True)
 
     def remove_page(self) -> None:
         self._flush_editors_to_model()
@@ -3090,6 +3174,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_pages_list()
         self.pages_list.setCurrentRow(max(0, row - 1))
         self.update_preview()
+        self.set_dirty(True)
 
     def _on_page_selected(self, index: int) -> None:
         if not self.project or index < 0 or index >= len(self.project.pages):
@@ -3107,6 +3192,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # Editing & preview -------------------------------------------------
     def _on_editor_changed(self) -> None:
         self._debounce.start()
+        self.set_dirty(True)
 
     def _flush_editors_to_model(self) -> None:
         if not self.project:
@@ -3177,6 +3263,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project.palette = palette
         self.project.fonts = fonts
         self.project.theme_preset = theme
+        self.set_dirty(True)
         self.update_preview()
         self.status_bar.showMessage("Theme applied", 4000)
 
@@ -3189,6 +3276,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.css_editor.setPlainText(updated)
         self.project.css = updated
         self.update_preview()
+        self.set_dirty(True)
 
     # Asset management --------------------------------------------------
     def _refresh_assets(self) -> None:
@@ -3219,6 +3307,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.project.images.append(asset)
                 added += 1
         if added:
+            self.set_dirty(True)
             self._refresh_assets()
             self.status_bar.showMessage(f"Added {added} asset(s)", 3000)
             self.update_preview()
@@ -3279,6 +3368,7 @@ class MainWindow(QtWidgets.QMainWindow):
         new_name = self._unique_asset_name(new_name.strip(), exclude=asset.name)
         asset.name = new_name
         self._refresh_assets()
+        self.set_dirty(True)
 
     def _remove_asset(self) -> None:
         row = self.asset_list.currentRow()
@@ -3290,6 +3380,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_assets()
         self.asset_preview.setPixmap(QtGui.QPixmap())
         self.update_preview()
+        self.set_dirty(True)
 
     def _insert_image_dialog(self) -> None:
         row = self.asset_list.currentRow()
@@ -3338,7 +3429,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if result.migrated:
             QtWidgets.QMessageBox.information(self, "Upgraded", "Project upgraded to the latest format.")
         self._load_project_into_ui()
+        self.update_window_title()
         self.update_preview()
+        self.set_dirty(False)
         self.recents.add_or_bump(self.project_path, self.project)
         thumb = write_project_thumbnail(self.project, self.project_path)
         if thumb:
@@ -3359,6 +3452,7 @@ class MainWindow(QtWidgets.QMainWindow):
         thumb = write_project_thumbnail(self.project, self.project_path)
         if thumb:
             self.recents.set_thumbnail(self.project_path, thumb)
+        self.set_dirty(False)
 
     def save_project_as(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
@@ -3393,6 +3487,132 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_bar.showMessage(f"Exported to {out_dir}", 4000)
         QtWidgets.QMessageBox.information(self, "Export complete", f"Your site was exported to:\n{out_dir}")
 
+    def export_zip(self) -> None:
+        if not self.project:
+            return
+        self._flush_editors_to_model()
+        out_zip, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save ZIP as…",
+            "",
+            "ZIP archive (*.zip)",
+        )
+        if not out_zip:
+            return
+        if not out_zip.lower().endswith(".zip"):
+            out_zip += ".zip"
+        tmp_dir = tempfile.mkdtemp(prefix="webineer_publish_")
+        try:
+            render_project(self.project, Path(tmp_dir))
+            with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for root, _, files in os.walk(tmp_dir):
+                    for filename in files:
+                        file_path = os.path.join(root, filename)
+                        arcname = os.path.relpath(file_path, tmp_dir)
+                        zf.write(file_path, arcname)
+            QtWidgets.QMessageBox.information(self, "ZIP created", f"Archive saved to:\n{out_zip}")
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Error", f"ZIP export failed:\n{exc}")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def open_publish_dialog(self) -> None:
+        dlg = PublishDialog(self)
+        dlg.btn_export.clicked.connect(self.export_project)
+        dlg.btn_zip.clicked.connect(self.export_zip)
+        dlg.exec()
+
+    # AI assistant -----------------------------------------------------
+    def build_ai_dock(self) -> None:
+        dock = QtWidgets.QDockWidget("AI Assistant", self)
+        dock.setObjectName("aiDock")
+        widget = QtWidgets.QWidget(dock)
+        layout = QtWidgets.QVBoxLayout(widget)
+
+        prompt = QtWidgets.QPlainTextEdit(widget)
+        prompt.setPlaceholderText("Describe what you want: e.g., ‘Suggest a 3-column features section’.")
+
+        buttons = QtWidgets.QHBoxLayout()
+        btn_suggest = QtWidgets.QPushButton("Suggest Section", widget)
+        btn_css = QtWidgets.QPushButton("Suggest CSS Tweak", widget)
+        btn_explain = QtWidgets.QPushButton("Explain Current Page", widget)
+        buttons.addWidget(btn_suggest)
+        buttons.addWidget(btn_css)
+        buttons.addWidget(btn_explain)
+
+        output = QtWidgets.QPlainTextEdit(widget)
+        output.setReadOnly(True)
+
+        layout.addWidget(prompt)
+        layout.addLayout(buttons)
+        layout.addWidget(QtWidgets.QLabel("Output", widget))
+        layout.addWidget(output)
+        widget.setLayout(layout)
+        dock.setWidget(widget)
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, dock)
+
+        self.ai_dock = dock
+        self.ai_prompt = prompt
+        self.ai_output = output
+
+        def run_ai(kind: str) -> None:
+            if self.ai_output is None or self.ai_prompt is None:
+                return
+            if not self.project:
+                self.ai_output.setPlainText("Open a project first.")
+                return
+            current_html = self.html_editor.toPlainText()
+            css = self.css_editor.toPlainText()
+            site = self.project.name if self.project else "Untitled"
+            prompt_text = self.ai_prompt.toPlainText()
+            prompt_payload = (
+                f"[Task: {kind}]\n[Site: {site}]\n[Current page HTML]:\n{current_html}\n\n"
+                f"[Global CSS]:\n{css}\n\n[User request]:\n{prompt_text}"
+            )
+            self.ai_output.setPlainText("Thinking…")
+            thread = QThread(self)
+            worker = _AIWorker(prompt_payload)
+            worker.moveToThread(thread)
+
+            def handle_finish(text: str) -> None:
+                if self.ai_output is not None:
+                    self.ai_output.setPlainText(text)
+                thread.quit()
+
+            def handle_error(message: str) -> None:
+                if self.ai_output is not None:
+                    self.ai_output.setPlainText(f"Error: {message}")
+                thread.quit()
+
+            def cleanup() -> None:
+                if thread in self._ai_threads:
+                    self._ai_threads.remove(thread)
+                if worker in self._ai_workers:
+                    self._ai_workers.remove(worker)
+                worker.deleteLater()
+                thread.deleteLater()
+
+            worker.finished.connect(handle_finish)
+            worker.errored.connect(handle_error)
+            thread.finished.connect(cleanup)
+            thread.started.connect(worker.run)
+            self._ai_threads.append(thread)
+            self._ai_workers.append(worker)
+            thread.start()
+
+        btn_suggest.clicked.connect(lambda: run_ai("Propose an HTML snippet"))
+        btn_css.clicked.connect(lambda: run_ai("Propose a focused CSS improvement"))
+        btn_explain.clicked.connect(lambda: run_ai("Explain the structure and accessible improvements"))
+
+    def toggle_ai_dock(self) -> None:
+        if self.ai_dock is None:
+            self.build_ai_dock()
+        if self.ai_dock is None:
+            return
+        visible = self.ai_dock.isVisible()
+        self.ai_dock.setVisible(not visible)
+        if not visible:
+            self.ai_dock.raise_()
     # Misc --------------------------------------------------------------
     def show_about(self) -> None:
         QtWidgets.QMessageBox.information(
@@ -3418,14 +3638,109 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview.setHtml(html)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        self._flush_editors_to_model()
+        if not self.maybe_save_before("quitting"):
+            event.ignore()
+            return
         if self._preview_tmp and os.path.isdir(self._preview_tmp):
             shutil.rmtree(self._preview_tmp, ignore_errors=True)
-        super().closeEvent(event)
+        event.accept()
 
     def show_tab(self, name: str) -> None:
         # MainWindow does not have nav_list; this method is a no-op or should be removed.
         pass
+
+class _AIWorker(QObject):
+    finished = pyqtSignal(str)
+    errored = pyqtSignal(str)
+
+    def __init__(self, prompt: str) -> None:
+        super().__init__()
+        self.prompt = prompt
+
+    def run(self) -> None:
+        try:
+            import os
+
+            try:
+                import requests
+            except ModuleNotFoundError:
+                self.errored.emit("Install the 'requests' package to enable AI suggestions.")
+                return
+
+            key = os.environ.get("OPENAI_API_KEY", "")
+            if not key:
+                self.errored.emit("Set OPENAI_API_KEY in your environment.")
+                return
+            response = requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}"},
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": self.prompt}],
+                    "temperature": 0.2,
+                },
+                timeout=60,
+            )
+            payload = response.json()
+            if response.status_code >= 400 or "error" in payload:
+                message = payload.get("error", {}).get("message", "Request failed")
+                self.errored.emit(str(message))
+                return
+            choices = payload.get("choices") or []
+            text = choices[0].get("message", {}).get("content", "") if choices else ""
+            if not text:
+                text = "No response."
+            self.finished.emit(text.strip())
+        except Exception as exc:  # noqa: BLE001
+            self.errored.emit(str(exc))
+
+
+class PublishDialog(QtWidgets.QDialog):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Publish your site")
+        self.resize(540, 380)
+        layout = QtWidgets.QVBoxLayout(self)
+
+        export_group = QtWidgets.QGroupBox("Export options", self)
+        export_layout = QtWidgets.QVBoxLayout(export_group)
+        btn_export = QtWidgets.QPushButton("Export to folder…", export_group)
+        btn_zip = QtWidgets.QPushButton("Create ZIP archive…", export_group)
+        export_layout.addWidget(btn_export)
+        export_layout.addWidget(btn_zip)
+
+        guides_group = QtWidgets.QGroupBox("Guides & hosting", self)
+        guides_layout = QtWidgets.QGridLayout(guides_group)
+
+        def link_btn(caption: str, url: str) -> QtWidgets.QPushButton:
+            button = QtWidgets.QPushButton(caption, guides_group)
+            button.clicked.connect(lambda checked=False, link=url: open_url(link))
+            return button
+
+        guides_layout.addWidget(link_btn("GitHub Pages quickstart", "https://docs.github.com/en/pages/quickstart"), 0, 0)
+        guides_layout.addWidget(
+            link_btn("Static hosting tips (web.dev/hosting)", "https://web.dev/learn/pwa/hosting/"),
+            0,
+            1,
+        )
+        guides_layout.addWidget(link_btn("Netlify docs", "https://docs.netlify.com/"), 1, 0)
+        guides_layout.addWidget(link_btn("Vercel docs", "https://vercel.com/docs"), 1, 1)
+
+        domain_group = QtWidgets.QGroupBox("Get a domain", self)
+        domain_layout = QtWidgets.QHBoxLayout(domain_group)
+        domain_layout.addWidget(link_btn("LeanDomainSearch", "https://leandomainsearch.com/"))
+        domain_layout.addWidget(
+            link_btn("Namecheap Generator", "https://www.namecheap.com/domains/domain-name-generator/"),
+        )
+        domain_layout.addWidget(link_btn("Cloudflare Registrar", "https://www.cloudflare.com/products/registrar/"))
+
+        layout.addWidget(export_group)
+        layout.addWidget(guides_group)
+        layout.addWidget(domain_group)
+
+        self.btn_export = btn_export
+        self.btn_zip = btn_zip
+
 
 # ---------------------------------------------------------------------------
 # Application controller
