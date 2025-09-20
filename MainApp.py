@@ -2773,6 +2773,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(f"{APP_TITLE} — {project.name}")
         self.resize(1280, 820)
 
+        self._current_page_index: int = -1
+        self._flush_row_override: Optional[int] = None
+
         self._preview_tmp: Optional[str] = None
         self._debounce = QtCore.QTimer(self)
         self._debounce.setInterval(400)
@@ -2981,10 +2984,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _load_project_into_ui(self) -> None:
         self._refresh_pages_list()
+        self._current_page_index = -1
+        self._flush_row_override = None
+        self.html_editor.blockSignals(True)
+        if self.project.pages:
+            self.html_editor.setPlainText(self.project.pages[0].html)
+        else:
+            self.html_editor.clear()
+        self.html_editor.blockSignals(False)
+        self.css_editor.blockSignals(True)
+        self.css_editor.setPlainText(self.project.css)
+        self.css_editor.blockSignals(False)
         if self.project.pages:
             self.pages_list.setCurrentRow(0)
-            self.html_editor.setPlainText(self.project.pages[0].html)
-        self.css_editor.setPlainText(self.project.css)
         self.design_primary.setText(self.project.palette.get("primary", "#2563eb"))
         self.design_surface.setText(self.project.palette.get("surface", "#f8fafc"))
         self.design_text.setText(self.project.palette.get("text", "#0f172a"))
@@ -3001,6 +3013,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pages_list.blockSignals(False)
 
     def new_project_bootstrap(self) -> None:
+        self._flush_editors_to_model()
         dialog = TemplateSelectDialog(self, PROJECT_TEMPLATES)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
@@ -3036,6 +3049,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_preview()
 
     def add_page(self) -> None:
+        self._flush_editors_to_model()
         dialog = PageTemplateDialog(self, PAGE_TYPES)
         if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
@@ -3052,10 +3066,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project.pages.append(Page(filename=filename, title=title, html=html))
         self._refresh_pages_list()
         self.pages_list.setCurrentRow(len(self.project.pages) - 1)
+        self.html_editor.blockSignals(True)
         self.html_editor.setPlainText(html)
+        self.html_editor.blockSignals(False)
         self.update_preview()
 
     def remove_page(self) -> None:
+        self._flush_editors_to_model()
         row = self.pages_list.currentRow()
         if row < 0 or row >= len(self.project.pages):
             return
@@ -3075,13 +3092,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_preview()
 
     def _on_page_selected(self, index: int) -> None:
-        if index < 0 or index >= len(self.project.pages):
+        if not self.project or index < 0 or index >= len(self.project.pages):
             return
+        previous = self._current_page_index
+        self._flush_row_override = previous if previous not in (-1, index) else None
         self._flush_editors_to_model()
         page = self.project.pages[index]
         self.html_editor.blockSignals(True)
         self.html_editor.setPlainText(page.html)
         self.html_editor.blockSignals(False)
+        self._current_page_index = index
         self.update_preview()
 
     # Editing & preview -------------------------------------------------
@@ -3089,7 +3109,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._debounce.start()
 
     def _flush_editors_to_model(self) -> None:
+        if not self.project:
+            return
         index = self.pages_list.currentRow()
+        if self._flush_row_override is not None:
+            index = self._flush_row_override
+            self._flush_row_override = None
+        elif 0 <= self._current_page_index < len(self.project.pages):
+            index = self._current_page_index
         if 0 <= index < len(self.project.pages):
             self.project.pages[index].html = self.html_editor.toPlainText()
         self.project.css = self.css_editor.toPlainText()
@@ -3290,6 +3317,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # File operations ---------------------------------------------------
     def open_project_dialog(self) -> None:
+        self._flush_editors_to_model()
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Open project",
@@ -3390,6 +3418,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.preview.setHtml(html)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self._flush_editors_to_model()
         if self._preview_tmp and os.path.isdir(self._preview_tmp):
             shutil.rmtree(self._preview_tmp, ignore_errors=True)
         super().closeEvent(event)
