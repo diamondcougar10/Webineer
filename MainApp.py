@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple, cast
 
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, QStandardPaths, QThread, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from jinja2 import DictLoader, Environment, select_autoescape
@@ -50,6 +50,20 @@ def open_url(url: str) -> None:
     except Exception:
         pass
     webbrowser.open(url)
+
+
+def projects_root() -> Path:
+    """Return the default projects root inside the user's Documents folder."""
+    docs = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
+    if not docs:
+        docs = str(Path.home() / "Documents")
+    root = Path(docs) / "MyWebsites"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        root = Path.home() / "MyWebsites"
+        root.mkdir(parents=True, exist_ok=True)
+    return root
 
 
 def app_data_dir() -> Path:
@@ -86,6 +100,15 @@ class SettingsManager:
                 self._settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             except Exception:
                 self._settings = {}
+        changed = False
+        if self._settings.get("last_save_dir", "") == "":
+            self._settings["last_save_dir"] = str(projects_root())
+            changed = True
+        if self._settings.get("last_open_dir", "") == "":
+            self._settings["last_open_dir"] = str(projects_root())
+            changed = True
+        if changed:
+            self.save()
 
     def save(self) -> None:
         SETTINGS_PATH.write_text(json.dumps(self._settings, indent=2), encoding="utf-8")
@@ -4416,8 +4439,9 @@ class NewProjectWizard(QtWidgets.QDialog):
         helper = QtWidgets.QLabel("Tip: the location should be an empty folder where we'll keep exports and previews.")
         helper.setWordWrap(True)
         layout.addRow(helper)
-        last = self.settings.get("last_save_dir", str(Path.home()))
-        self.describe_location.setText(last)
+        default_dir = self.settings.get("last_save_dir", str(projects_root()))
+        if not self.describe_location.text().strip():
+            self.describe_location.setText(default_dir)
         self.describe_name.textChanged.connect(self._update_template_preview)
         return page
 
@@ -4611,7 +4635,7 @@ class NewProjectWizard(QtWidgets.QDialog):
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Choose save location",
-            self.settings.get("last_save_dir", str(Path.home())),
+            self.settings.get("last_save_dir", str(projects_root())),
         )
         if directory:
             self.describe_location.setText(directory)
@@ -4938,7 +4962,9 @@ class StartWindow(QtWidgets.QMainWindow):
         self.create_name.setText("My Site")
         self.create_location = QtWidgets.QLineEdit(form_group)
         self.create_location.setPlaceholderText("Where to save the .siteproj file")
-        self.create_location.setText(self.settings.get("last_save_dir", str(Path.home())))
+        default_dir = self.settings.get("last_save_dir", str(projects_root()))
+        if not self.create_location.text().strip():
+            self.create_location.setText(default_dir)
         browse = QtWidgets.QPushButton("Browse…", form_group)
         browse.clicked.connect(self._browse_save_location)
         location_layout = QtWidgets.QHBoxLayout()
@@ -5187,7 +5213,7 @@ class StartWindow(QtWidgets.QMainWindow):
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Choose where to save",
-            self.settings.get("last_save_dir", str(Path.home())),
+            self.settings.get("last_save_dir", str(projects_root())),
         )
         if directory:
             self.create_location.setText(directory)
@@ -5300,7 +5326,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Open project",
-            self.settings.get("last_open_dir", str(Path.home())),
+            self.settings.get("last_open_dir", str(projects_root())),
             "Webineer Project (*.siteproj)",
         )
         if path:
@@ -5317,7 +5343,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Import project",
-            self.settings.get("last_open_dir", str(Path.home())),
+            self.settings.get("last_open_dir", str(projects_root())),
             "Webineer Project (*.siteproj)",
         )
         if path:
@@ -5807,6 +5833,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_save = QtGui.QAction("Save", self)
         self.act_save_as = QtGui.QAction("Save As…", self)
         self.act_export = QtGui.QAction("Export…", self)
+        self.act_open_projects_root = QtGui.QAction("Open MyWebsites Folder", self)
+        self.act_open_projects_root.triggered.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(projects_root())))
+        )
         self.act_start = QtGui.QAction("Start Page", self)
         self.act_quit = QtGui.QAction("Quit", self)
         self.act_new.setShortcut("Ctrl+N")
@@ -5821,6 +5851,8 @@ class MainWindow(QtWidgets.QMainWindow):
             file_menu.addActions([self.act_save, self.act_save_as])
             file_menu.addSeparator()
             file_menu.addAction(self.act_export)
+            file_menu.addSeparator()
+            file_menu.addAction(self.act_open_projects_root)
             file_menu.addSeparator()
             file_menu.addAction(self.act_start)
             file_menu.addSeparator()
@@ -6676,7 +6708,7 @@ class MainWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Open project",
-            self.settings.get("last_open_dir", str(Path.home())),
+            self.settings.get("last_open_dir", str(projects_root())),
             "Webineer Project (*.siteproj)",
         )
         if not path:
@@ -6725,10 +6757,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_dirty(False)
 
     def save_project_as(self) -> None:
+        default_dir = Path(self.settings.get("last_save_dir", str(projects_root())))
+        initial_path = self.project_path or default_dir / "MySite.siteproj"
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save project as",
-            str(self.project_path or Path.home() / "MySite.siteproj"),
+            str(initial_path),
             "Webineer Project (*.siteproj)",
         )
         if not path:
@@ -6736,6 +6770,7 @@ class MainWindow(QtWidgets.QMainWindow):
         path_obj = Path(path)
         if path_obj.suffix != ".siteproj":
             path_obj = path_obj.with_suffix(".siteproj")
+        self.settings.set("last_save_dir", str(path_obj.parent))
         self.project_path = path_obj
         self.project.output_dir = str(path_obj.parent)
         self.save_project()
@@ -6743,10 +6778,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def export_project(self) -> None:
         self._flush_editors_to_model()
         self._maybe_render_cover(force=True)
+        default_dir = self.settings.get("last_export_dir", str(projects_root()))
+        start_dir = self.project.output_dir or default_dir
         out_dir = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Export site",
-            self.project.output_dir or str(Path.home()),
+            start_dir,
         )
         if not out_dir:
             return
@@ -6755,6 +6792,7 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Export failed", str(exc))
             return
+        self.settings.set("last_export_dir", out_dir)
         self.status_bar.showMessage(f"Exported to {out_dir}", 4000)
         QtWidgets.QMessageBox.information(self, "Export complete", f"Your site was exported to:\n{out_dir}")
 
