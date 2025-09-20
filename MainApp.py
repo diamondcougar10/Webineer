@@ -8,9 +8,6 @@ import re
 import shutil
 import sys
 import tempfile
-import urllib.error
-import urllib.parse
-import urllib.request
 import webbrowser
 import zipfile
 import uuid
@@ -18,10 +15,14 @@ import hashlib
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, cast
+
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, cast
+
+# Ensure migrate_project_v1_to_v2 is defined before use
+# (Already defined later in this file)
 
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import QObject, QStandardPaths, QThread, Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from jinja2 import DictLoader, Environment, select_autoescape
@@ -29,7 +30,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 
 APP_TITLE = "Webineer Site Builder"
 APP_ICON_PATH = "icon.ico"
-SITE_VERSION = 4
+SITE_VERSION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -55,20 +56,6 @@ def open_url(url: str) -> None:
     webbrowser.open(url)
 
 
-def projects_root() -> Path:
-    """Return the default projects root inside the user's Documents folder."""
-    docs = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
-    if not docs:
-        docs = str(Path.home() / "Documents")
-    root = Path(docs) / "MyWebsites"
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        root = Path.home() / "MyWebsites"
-        root.mkdir(parents=True, exist_ok=True)
-    return root
-
-
 def app_data_dir() -> Path:
     """Return the platform-specific application data directory."""
     if os.name == "nt":
@@ -78,13 +65,6 @@ def app_data_dir() -> Path:
     target = base / "Webineer"
     target.mkdir(parents=True, exist_ok=True)
     return target
-
-
-def slugify(value: str, *, fallback: str = "section") -> str:
-    """Convert a string into a slug suitable for CSS classes."""
-
-    cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return cleaned or fallback
 
 
 RECENTS_PATH = app_data_dir() / "recents.json"
@@ -110,15 +90,6 @@ class SettingsManager:
                 self._settings = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
             except Exception:
                 self._settings = {}
-        changed = False
-        if self._settings.get("last_save_dir", "") == "":
-            self._settings["last_save_dir"] = str(projects_root())
-            changed = True
-        if self._settings.get("last_open_dir", "") == "":
-            self._settings["last_open_dir"] = str(projects_root())
-            changed = True
-        if changed:
-            self.save()
 
     def save(self) -> None:
         SETTINGS_PATH.write_text(json.dumps(self._settings, indent=2), encoding="utf-8")
@@ -151,6 +122,7 @@ class AssetImage:
     mime: str
 
     def to_dict(self) -> Dict[str, object]:
+        """Return a dictionary representation of the AssetImage."""
         return {
             "name": self.name,
             "data_base64": self.data_base64,
@@ -159,90 +131,20 @@ class AssetImage:
             "mime": self.mime,
         }
 
-    @classmethod
-    def from_dict(cls, data: Dict[str, object]) -> "AssetImage":
-            def safe_int(val, default=0):
-                try:
-                    return int(val)
-                except (TypeError, ValueError):
-                    return default
-
-            return cls(
-                name=str(data.get("name", "image.png")),
-                data_base64=str(data.get("data_base64", "")),
-                width=safe_int(data.get("width", 0)),
-                height=safe_int(data.get("height", 0)),
-                mime=str(data.get("mime", "image/png")),
-            )
-
-
-@dataclass
-class ExternalAsset:
-    kind: str
-    mode: str
-    href: str
-    sri: Optional[str] = None
-    data_base64: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, object]:
-        payload: Dict[str, object] = {
-            "kind": self.kind,
-            "mode": self.mode,
-            "href": self.href,
-        }
-        if self.sri:
-            payload["sri"] = self.sri
-        if self.data_base64:
-            payload["data_base64"] = self.data_base64
-        return payload
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExternalAsset":
-        raw_kind = str(data.get("kind", "css")).lower()
-        kind = raw_kind if raw_kind in {"css", "js"} else "css"
-        raw_mode = str(data.get("mode", "cdn")).lower()
-        mode = raw_mode if raw_mode in {"cdn", "local"} else "cdn"
-        href = str(data.get("href", ""))
-        sri_val = data.get("sri")
-        sri = str(sri_val).strip() if isinstance(sri_val, str) and sri_val.strip() else None
-        payload_val = data.get("data_base64")
-        payload = (
-            str(payload_val)
-            if isinstance(payload_val, str) and payload_val.strip()
-            else None
+    @staticmethod
+    def from_dict(data: Dict[str, object]) -> "AssetImage":
+        def safe_int(val, default=0):
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return default
+        return AssetImage(
+            name=str(data.get("name", "")),
+            data_base64=str(data.get("data_base64", "")),
+            width=safe_int(data.get("width", 0)),
+            height=safe_int(data.get("height", 0)),
+            mime=str(data.get("mime", "")),
         )
-        return cls(kind=kind, mode=mode, href=href, sri=sri, data_base64=payload)
-
-
-@dataclass
-class BackgroundSpec:
-    scope: str
-    kind: str
-    value: Dict[str, str]
-
-    def to_dict(self) -> Dict[str, object]:
-        return {
-            "scope": self.scope,
-            "kind": self.kind,
-            "value": dict(self.value),
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BackgroundSpec":
-        raw_scope = str(data.get("scope", "site")).lower()
-        scope = raw_scope if raw_scope in {"site", "page"} else "site"
-        raw_kind = str(data.get("kind", "solid")).lower()
-        kind = (
-            raw_kind
-            if raw_kind in {"solid", "gradient", "image", "pattern"}
-            else "solid"
-        )
-        raw_value = data.get("value")
-        value: Dict[str, str] = {}
-        if isinstance(raw_value, dict):
-            value = {str(k): str(v) for k, v in raw_value.items()}
-        return cls(scope=scope, kind=kind, value=value)
-
 
 DEFAULT_PALETTE = {
     "primary": "#2563eb",
@@ -273,101 +175,88 @@ MOTION_PREF_OPTIONS: Dict[str, str] = {
     "Force off": "force_off",
 }
 
-
 @dataclass
 class Project:
-    name: str = "My Site"
-    pages: List[Page] = field(default_factory=list)
-    css: str = ""
-    palette: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PALETTE))
-    fonts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_FONTS))
-    images: List[AssetImage] = field(default_factory=list)
-    external: List[ExternalAsset] = field(default_factory=list)
-    backgrounds: List[BackgroundSpec] = field(default_factory=list)
-    template_key: str = "starter"
-    theme_preset: str = "Calm Sky"
-    use_main_js: bool = False
-    output_dir: Optional[str] = None
-    version: int = SITE_VERSION
-    use_scroll_animations: bool = False
-    gradients: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GRADIENT))
-    radius_scale: float = 1.0
-    shadow_level: str = "md"
-    motion_pref: str = "respect"
-    motion_default_effect: str = "none"
-    motion_default_easing: str = "cubic-bezier(.2,.65,.2,1)"
-    motion_default_duration: int = 600
-    motion_default_delay: int = 0
-    cover_path: Optional[str] = None
-    cover_updated_utc: Optional[str] = None
-    cover_asset_name: Optional[str] = None
-    cover_tile_path: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, object]:
-        return {
-            "name": self.name,
-            "pages": [asdict(p) for p in self.pages],
-            "css": self.css,
-            "palette": self.palette,
-            "fonts": self.fonts,
-            "images": [img.to_dict() for img in self.images],
-            "external": [asset.to_dict() for asset in self.external],
-            "backgrounds": [spec.to_dict() for spec in self.backgrounds],
-            "template_key": self.template_key,
-            "theme_preset": self.theme_preset,
-            "use_main_js": self.use_main_js,
-            "output_dir": self.output_dir,
-            "version": self.version,
-            "use_scroll_animations": self.use_scroll_animations,
-            "gradients": dict(self.gradients),
-            "radius_scale": self.radius_scale,
-            "shadow_level": self.shadow_level,
-            "motion_pref": self.motion_pref,
-            "motion_default_effect": self.motion_default_effect,
-            "motion_default_easing": self.motion_default_easing,
-            "motion_default_duration": self.motion_default_duration,
-            "motion_default_delay": self.motion_default_delay,
-            "cover_path": self.cover_path,
-            "cover_updated_utc": self.cover_updated_utc,
-            "cover_asset_name": self.cover_asset_name,
-            "cover_tile_path": self.cover_tile_path,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, object]) -> "Project":
+        name: str = "My Site"
+        pages: List[Page] = field(default_factory=list)
+        css: str = ""
+        palette: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PALETTE))
+        fonts: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_FONTS))
+        images: List[AssetImage] = field(default_factory=list)
+        template_key: str = "starter"
+        theme_preset: str = "Calm Sky"
+        use_main_js: bool = False
+        output_dir: Optional[str] = None
+        version: int = SITE_VERSION
+        use_scroll_animations: bool = False
+        gradients: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GRADIENT))
+        radius_scale: float = 1.0
+        shadow_level: str = "md"
+        motion_pref: str = "respect"
+        motion_default_effect: str = "none"
+        motion_default_easing: str = "cubic-bezier(.2,.65,.2,1)"
+        motion_default_duration: int = 600
+        motion_default_delay: int = 0
+        cover_path: Optional[str] = None
+        cover_updated_utc: Optional[str] = None
+        cover_asset_name: Optional[str] = None
+        cover_tile_path: Optional[str] = None
+    
+        def to_dict(self) -> Dict[str, object]:
+            return {
+                "name": self.name,
+                "pages": [asdict(p) for p in self.pages],
+                "css": self.css,
+                "palette": self.palette,
+                "fonts": self.fonts,
+                "images": [img.to_dict() for img in self.images],
+                "template_key": self.template_key,
+                "theme_preset": self.theme_preset,
+                "use_main_js": self.use_main_js,
+                "output_dir": self.output_dir,
+                "version": self.version,
+                "use_scroll_animations": self.use_scroll_animations,
+                "gradients": dict(self.gradients),
+                "radius_scale": self.radius_scale,
+                "shadow_level": self.shadow_level,
+                "motion_pref": self.motion_pref,
+                "motion_default_effect": self.motion_default_effect,
+                "motion_default_easing": self.motion_default_easing,
+                "motion_default_duration": self.motion_default_duration,
+                "motion_default_delay": self.motion_default_delay,
+                "cover_path": self.cover_path,
+                "cover_updated_utc": self.cover_updated_utc,
+                "cover_asset_name": self.cover_asset_name,
+                "cover_tile_path": self.cover_tile_path,
+            }
+    
+        @classmethod
+        def from_dict(cls, data: Dict[str, object]) -> "Project":
             def safe_int(val, default=1):
                 try:
                     return int(val)
                 except (TypeError, ValueError):
                     return default
-
+    
             def safe_float(val, default=1.0):
                 try:
                     return float(val)
                 except (TypeError, ValueError):
                     return default
-
+    
             def safe_list(val):
                 return val if isinstance(val, list) else []
-
+    
             def safe_dict(val, default):
                 if isinstance(val, dict):
                     return {str(k): str(v) for k, v in val.items()}
                 return dict(default)
-
+    
             version = safe_int(data.get("version", 1))
             if version == 1:
                 data = migrate_project_v1_to_v2(data)
             pages = [Page(**p) for p in safe_list(data.get("pages", []))]
-            images = [AssetImage.from_dict(img) for img in safe_list(data.get("images", []))]
-            external_assets: List[ExternalAsset] = []
-            for item in safe_list(data.get("external", [])):
-                if isinstance(item, dict):
-                    external_assets.append(ExternalAsset.from_dict(item))
-            background_specs: List[BackgroundSpec] = []
-            for item in safe_list(data.get("backgrounds", [])):
-                if isinstance(item, dict):
-                    background_specs.append(BackgroundSpec.from_dict(item))
+            images = [AssetImage.from_dict(img) for img in safe_list(data.get("images", [])) if isinstance(img, dict)]
             palette = safe_dict(data.get("palette", DEFAULT_PALETTE), DEFAULT_PALETTE)
             fonts = safe_dict(data.get("fonts", DEFAULT_FONTS), DEFAULT_FONTS)
             output_dir = data.get("output_dir")
@@ -419,8 +308,6 @@ class Project:
                 palette=palette,
                 fonts=fonts,
                 images=images,
-                external=external_assets,
-                backgrounds=background_specs,
                 template_key=str(data.get("template_key", "starter")),
                 theme_preset=str(data.get("theme_preset", "Calm Sky")),
                 use_main_js=bool(data.get("use_main_js", False)),
@@ -528,9 +415,6 @@ FONT_STACKS = [
 CSS_HELPERS_SENTINEL = "/* === WEBINEER CSS HELPERS (DO NOT DUPLICATE) === */"
 ANIM_HELPERS_SENTINEL = "/* === WEBINEER ANIMATION HELPERS === */"
 GRADIENT_HELPERS_SENTINEL = "/* === WEBINEER GRADIENT HELPERS === */"
-BG_HELPERS_SENTINEL = "/* === WEBINEER BG HELPERS (DO NOT DUPLICATE) === */"
-BACKGROUND_SENTINEL = "/* === WEBINEER BACKGROUND RULES === */"
-BACKGROUND_HINT_PREFIX = "<!-- Webineer background hint:"
 TEMPLATE_EXTRA_SENTINEL = "/* === WEBINEER TEMPLATE EXTRA CSS === */"
 
 CSS_HELPERS_BLOCK = """:root {
@@ -753,96 +637,7 @@ body {
 .alert-success { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.32); }
 .alert-warning { background: rgba(234, 179, 8, 0.2); border-color: rgba(234, 179, 8, 0.42); }
 .alert-danger { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.36); }
-.muted { color: rgba(15, 23, 42, 0.65); }
-.badge { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.25rem 0.75rem; font-size: 0.85rem; background: rgba(37, 99, 235, 0.12); color: var(--color-primary, #2563eb); }
-.badge-soft { background: rgba(148, 163, 184, 0.18); color: rgba(15, 23, 42, 0.8); }
-.divider { height: 1px; background: rgba(148,163,184,0.3); margin: var(--space-4) 0; }
-.pill-nav { display: inline-flex; gap: 0.5rem; padding: 0.35rem; border-radius: 999px; background: rgba(148,163,184,0.2); }
-.pill-nav a { padding: 0.45rem 0.85rem; border-radius: 999px; text-decoration: none; color: inherit; }
-.pill-nav a.is-active { background: white; box-shadow: var(--shadow-sm); }
-.chip { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.25rem 0.6rem; background: rgba(148,163,184,0.16); font-size: 0.85rem; }
-.glass-card { backdrop-filter: blur(14px) saturate(120%); background: rgba(255,255,255,0.08); border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,0.18); box-shadow: 0 16px 40px rgba(15,23,42,0.35); }
-.tabs { display: grid; gap: 0.75rem; }
-.tabs [role="tablist"] { display: inline-flex; gap: 0.35rem; padding: 0.35rem; border-radius: 999px; background: rgba(148,163,184,0.2); }
-.tabs [role="tab"] { border: none; background: transparent; border-radius: 999px; padding: 0.45rem 0.85rem; font-weight: 600; cursor: pointer; }
-.tabs [role="tab"].is-active { background: white; box-shadow: var(--shadow-sm); }
-.timeline { position: relative; padding-left: 1.5rem; display: grid; gap: 1.5rem; }
-.timeline::before { content: ""; position: absolute; inset: 0 auto 0 0.5rem; width: 2px; background: rgba(148,163,184,0.4); }
-.timeline article { position: relative; padding: 1rem; border-radius: var(--radius-sm); background: white; box-shadow: var(--shadow-sm); }
-.timeline article::before { content: ""; position: absolute; top: 1rem; left: -1.05rem; width: 12px; height: 12px; border-radius: 999px; background: var(--color-primary, #2563eb); box-shadow: 0 0 0 6px rgba(37,99,235,0.15); }
-.pricing { display: grid; gap: 1.5rem; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); }
-.pricing article { border: 1px solid rgba(148,163,184,0.25); border-radius: var(--radius-md); padding: 1.75rem; background: white; box-shadow: var(--shadow-sm); }
-.testimonial-card { padding: 1.5rem; border-radius: var(--radius-md); background: white; box-shadow: var(--shadow-sm); }
-.sticky-header { position: sticky; top: 0; z-index: 40; backdrop-filter: blur(10px); background: rgba(255,255,255,0.82); border-bottom: 1px solid rgba(148,163,184,0.35); }
-.shimmer { position: relative; overflow: hidden; background: rgba(148,163,184,0.2); }
-.shimmer::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,0.8) 50%, transparent 70%); animation: shimmer 1.8s infinite; }
-@keyframes shimmer { 100% { transform: translateX(100%); } }
 """
-
-BG_HELPERS_BLOCK = f"""{BG_HELPERS_SENTINEL}
-.bg-cover   { background-repeat:no-repeat; background-position:center; background-size:cover; }
-.bg-fixed   { background-attachment: fixed; }
-.bg-soft    { background: color-mix(in oklab, var(--color-primary) 6%, var(--color-surface)); }
-.glass      { backdrop-filter: blur(10px) saturate(120%); background: rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); border-radius: .8rem; }
-.tile-grid  { display:grid; gap:1rem; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
-.tile       { border-radius:.8rem; padding:1rem; background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); box-shadow: 0 10px 30px rgba(0,0,0,.18); }
-.neon-btn   { color:#fff; text-shadow:0 0 8px var(--color-primary); box-shadow:0 0 12px var(--color-primary) inset, 0 0 16px var(--color-primary); }
-"""
-
-BACKGROUND_PATTERNS: List[Dict[str, str]] = [
-    {
-        "key": "aurora",
-        "label": "Aurora Glow",
-        "svg": (
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 200\">"
-            "<defs>"
-            "<linearGradient id=\"auroraGrad\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">"
-            "<stop offset=\"0\" stop-color=\"#0ea5e9\" stop-opacity=\"0.65\"/>"
-            "<stop offset=\"1\" stop-color=\"#a855f7\" stop-opacity=\"0.65\"/>"
-            "</linearGradient>"
-            "</defs>"
-            "<rect width=\"200\" height=\"200\" fill=\"#0f172a\" opacity=\"0\"/>"
-            "<path d=\"M0 70 Q50 0 120 70 T240 70 V200 H0 Z\" fill=\"url(#auroraGrad)\"/>"
-            "<path d=\"M-20 150 Q60 100 130 150 T240 150 V200 H-20 Z\" fill=\"#38bdf8\" opacity=\"0.18\"/>"
-            "</svg>"
-        ),
-        "opacity": "0.45",
-    },
-    {
-        "key": "diagonals",
-        "label": "Diagonal Weave",
-        "svg": (
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 200\">"
-            "<defs>"
-            "<pattern id=\"diag\" width=\"28\" height=\"28\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\">"
-            "<rect width=\"28\" height=\"28\" fill=\"transparent\"/>"
-            "<rect width=\"12\" height=\"28\" fill=\"#0ea5e9\" opacity=\"0.14\"/>"
-            "</pattern>"
-            "</defs>"
-            "<rect width=\"200\" height=\"200\" fill=\"url(#diag)\"/>"
-            "</svg>"
-        ),
-        "opacity": "0.28",
-    },
-    {
-        "key": "speckles",
-        "label": "Soft Speckles",
-        "svg": (
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 200\">"
-            "<defs>"
-            "<pattern id=\"speck\" width=\"32\" height=\"32\" patternUnits=\"userSpaceOnUse\">"
-            "<rect width=\"32\" height=\"32\" fill=\"transparent\"/>"
-            "<circle cx=\"8\" cy=\"8\" r=\"4\" fill=\"#a855f7\" opacity=\"0.2\"/>"
-            "<circle cx=\"24\" cy=\"20\" r=\"3\" fill=\"#0ea5e9\" opacity=\"0.24\"/>"
-            "<circle cx=\"16\" cy=\"28\" r=\"2\" fill=\"#38bdf8\" opacity=\"0.2\"/>"
-            "</pattern>"
-            "</defs>"
-            "<rect width=\"200\" height=\"200\" fill=\"url(#speck)\"/>"
-            "</svg>"
-        ),
-        "opacity": "0.4",
-    },
-]
 
 
 def gradient_helpers_block(grad: Dict[str, str]) -> str:
@@ -915,22 +710,13 @@ def animation_helpers_block(motion_pref: str = "respect") -> str:
 [data-animate="fade"].is-in {{ animation-name: fadeInUp; }}
 [data-animate="zoom"].is-in {{ animation-name: zoomIn; }}
 [data-animate="blur"].is-in {{ animation-name: blurIn; }}
-/* === WEBINEER ANIM HELPERS === */
-.anim-fade-up   {{ opacity:0; transform: translateY(12px); transition:opacity .6s ease, transform .6s ease; }}
-.anim-fade-in   {{ opacity:0; transition:opacity .6s ease; }}
-.anim-zoom-in   {{ opacity:0; transform: scale(.98); transition:opacity .6s ease, transform .6s ease; }}
-.is-visible.anim-fade-up {{ opacity:1; transform:none; }}
-.is-visible.anim-fade-in {{ opacity:1; }}
-.is-visible.anim-zoom-in {{ opacity:1; transform:scale(1); }}
 """
     )
 
 CSS_SENTINELS = (
     CSS_HELPERS_SENTINEL,
-    BG_HELPERS_SENTINEL,
     GRADIENT_HELPERS_SENTINEL,
     ANIM_HELPERS_SENTINEL,
-    BACKGROUND_SENTINEL,
     TEMPLATE_EXTRA_SENTINEL,
 )
 
@@ -967,155 +753,7 @@ def extract_css_block(css: str, sentinel: str) -> str | None:
     return block or None
 
 
-def remove_css_block(css: str, sentinel: str) -> str:
-    """Remove a sentinel block from the CSS if present."""
-
-    if sentinel not in css:
-        return css
-    head, tail = css.split(sentinel, 1)
-    trimmed_head = head.rstrip()
-    remainder = tail.lstrip("\n")
-    end = len(remainder)
-    for other in CSS_SENTINELS:
-        if other == sentinel:
-            continue
-        pos = remainder.find(other)
-        if pos != -1 and pos < end:
-            end = pos
-    trailing = remainder[end:].lstrip("\n")
-    if trimmed_head and trailing:
-        return trimmed_head + "\n\n" + trailing
-    if trimmed_head:
-        return trimmed_head
-    return trailing
-
-
-def set_css_block(css: str, sentinel: str, body: Optional[str]) -> str:
-    """Replace or append a sentinel block with provided body content."""
-
-    updated = remove_css_block(css, sentinel)
-    if not body or not body.strip():
-        return updated
-    block_content = body.strip()
-    addition = f"{sentinel}\n{block_content}\n"
-    base = updated.rstrip()
-    if base:
-        return base + "\n\n" + addition
-    return addition
-
-
 THEME_EXTRA_PREFIX = "/* theme:"
-
-
-def background_marker(spec: BackgroundSpec) -> str:
-    """Return a descriptive marker comment for a background spec."""
-
-    if spec.scope == "page":
-        slug = spec.value.get("slug") or slugify(spec.value.get("page", "page"))
-        return f"/* Webineer Background (page/{slug}) */"
-    return f"/* Webineer Background (site/{spec.kind}) */"
-
-
-def render_background_css(spec: BackgroundSpec) -> str:
-    """Generate CSS for a background specification."""
-
-    value = spec.value or {}
-    lines: List[str] = []
-    if spec.scope == "site":
-        if spec.kind == "solid":
-            color = value.get("color", "#0f0f0f")
-            lines.extend(["body {", f"  background: {color};", "}"])
-        elif spec.kind == "gradient":
-            from_color = value.get("from", "#0ea5e9")
-            to_color = value.get("to", "#a855f7")
-            angle = value.get("angle", "135deg")
-            lines.extend(
-                [
-                    'body::before {',
-                    '  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;',
-                    f"  background: linear-gradient({angle}, {from_color}, {to_color});",
-                    "}",
-                ]
-            )
-        elif spec.kind == "image":
-            url = value.get("url") or value.get("file")
-            if not url:
-                return ""
-            position = value.get("position", "center")
-            size = value.get("size", "cover")
-            repeat = value.get("repeat", "no-repeat")
-            lines.append("body {")
-            lines.append(f"  background-image: url('{url}');")
-            lines.append(f"  background-position: {position};")
-            lines.append(f"  background-size: {size};")
-            lines.append(f"  background-repeat: {repeat};")
-            if value.get("fixed") == "1":
-                lines.append("  background-attachment: fixed;")
-            lines.append("}")
-        elif spec.kind == "pattern":
-            svg = value.get("svg", "")
-            if not svg:
-                return ""
-            encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
-            opacity = value.get("opacity", "0.45")
-            lines.extend(
-                [
-                    'body::before {',
-                    '  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;',
-                    f"  background-image: url('data:image/svg+xml;base64,{encoded}');",
-                    "  background-repeat: repeat;",
-                    f"  opacity: {opacity};",
-                    "}",
-                ]
-            )
-    else:
-        slug = value.get("slug") or slugify(value.get("page", "page"))
-        selector = f".{slug}"
-        if spec.kind == "solid":
-            color = value.get("color", "#111827")
-            lines.append(f"{selector} {{ background: {color}; }}")
-        elif spec.kind == "gradient":
-            from_color = value.get("from", "#0ea5e9")
-            to_color = value.get("to", "#a855f7")
-            angle = value.get("angle", "135deg")
-            lines.append(
-                f"{selector} {{ background: linear-gradient({angle}, {from_color}, {to_color}); color: inherit; }}"
-            )
-        elif spec.kind == "image":
-            url = value.get("url") or value.get("file")
-            if not url:
-                return ""
-            position = value.get("position", "center")
-            size = value.get("size", "cover")
-            repeat = value.get("repeat", "no-repeat")
-            lines.append(f"{selector} {{ background-image: url('{url}'); }}")
-            lines.append(
-                f"{selector} {{ background-position:{position}; background-size:{size}; background-repeat:{repeat}; }}"
-            )
-            if value.get("fixed") == "1":
-                lines.append(f"{selector}.bg-fixed {{ background-attachment: fixed; }}")
-        elif spec.kind == "pattern":
-            svg = value.get("svg", "")
-            if not svg:
-                return ""
-            encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
-            opacity = value.get("opacity", "0.4")
-            lines.append(
-                f"{selector} {{ background-image: url('data:image/svg+xml;base64,{encoded}'); background-repeat: repeat; opacity: {opacity}; }}"
-            )
-    return "\n".join(lines)
-
-
-def backgrounds_block(specs: Iterable[BackgroundSpec]) -> str:
-    """Build the CSS block containing all background definitions."""
-
-    parts: List[str] = []
-    for spec in specs:
-        css = render_background_css(spec).strip()
-        if not css:
-            continue
-        parts.append(f"{background_marker(spec)}\n{css}")
-    return "\n\n".join(parts)
 
 
 def strip_theme_extras(block: Optional[str]) -> str:
@@ -1144,27 +782,6 @@ MAIN_JS_SNIPPET = """// Lightweight helpers for Webineer components
       }
     });
   });
-  const reveal = (root = document) => {
-    const els = root.querySelectorAll('.anim-fade-up, .anim-fade-in, .anim-zoom-in');
-    if (!('IntersectionObserver' in window) || !els.length) {
-      els.forEach((el) => el.classList.add('is-visible'));
-      return;
-    }
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('is-visible');
-          io.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.12 });
-    els.forEach((el) => io.observe(el));
-  };
-  if (document.readyState !== 'loading') {
-    reveal(document);
-  } else {
-    document.addEventListener('DOMContentLoaded', () => reveal(document));
-  }
 })();
 """
 
@@ -1193,6 +810,8 @@ class Snippet:
     requires_js: bool = False
 
 
+CSS_BG_COVER = ".bg-cover {background-size:cover;background-position:center center;background-repeat:no-repeat;}"
+
 SECTIONS_SNIPPETS: Dict[str, Snippet] = {
     "hero": Snippet("Hero spotlight", """
 <section class=\"hero\">
@@ -1204,20 +823,11 @@ SECTIONS_SNIPPETS: Dict[str, Snippet] = {
   </div>
 </section>
 """),
-    "hero-split": Snippet("Hero with image", """
+    "hero-split": Snippet("Hero split", """
 <section class=\"hero hero-split\">
   <div class=\"stack\">
     <p class=\"eyebrow\">New announcement</p>
-    <h1>Highlight the benefit</h1>
-    <p class=\"lead\">Share how you solve the problem, not the feature list.</p>
-    <div class=\"stack-inline\">
-      <a class=\"btn btn-primary\" href=\"#\">Get started</a>
-      <a class=\"btn btn-soft\" href=\"#\">Talk to us</a>
-    </div>
   </div>
-  <figure class=\"card media\">
-    <img src=\"assets/images/placeholder-wide.png\" alt=\"Illustration\">
-  </figure>
 </section>
 """),
     "header": Snippet("Header with navigation", """
@@ -3820,9 +3430,6 @@ BASE_TEMPLATE = """\
   <meta charset=\"utf-8\">
   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
   <title>{{ title }} — {{ site_name }}</title>
-  {% for asset in external_css %}
-  <link rel=\"stylesheet\" href=\"{{ asset.href }}\"{% if asset.sri %} integrity=\"{{ asset.sri }}\" crossorigin=\"anonymous\"{% endif %}>
-  {% endfor %}
   <link rel=\"stylesheet\" href=\"assets/css/style.css\">
   <style>
     :root {
@@ -3836,10 +3443,8 @@ BASE_TEMPLATE = """\
 </head>
 <body class=\"main-container\">
   {{ content | safe }}
-  {% for script in external_js %}<script src=\"{{ script.href }}\"{% if script.defer %} defer{% endif %}{% if script.sri %} integrity=\"{{ script.sri }}\" crossorigin=\"anonymous\"{% endif %}></script>
-  {% endfor %}
   {% if use_scroll_js %}<script src=\"assets/js/site.js\" defer></script>{% endif %}
-  {% if include_js %}<script src=\"assets/js/main.js\" defer></script>{% endif %}
+  <script src=\"assets/js/main.js\"{% if not include_js %} defer hidden{% endif %}></script>
 </body>
 </html>
 """
@@ -3986,11 +3591,8 @@ def render_site(project: Project, output_dir: Path) -> None:
     img_dir.mkdir(parents=True, exist_ok=True)
     css_source = project.css or ""
     css = ensure_block(css_source, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
-    css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
     css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(project.gradients))
     css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(project.motion_pref))
-    background_body = backgrounds_block(project.backgrounds)
-    css = set_css_block(css, BACKGROUND_SENTINEL, background_body if background_body else None)
     extra_block = extract_css_block(css_source, TEMPLATE_EXTRA_SENTINEL)
     if extra_block:
         css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
@@ -3998,47 +3600,6 @@ def render_site(project: Project, output_dir: Path) -> None:
     for asset in project.images:
         data = base64.b64decode(asset.data_base64.encode("ascii"))
         (img_dir / asset.name).write_bytes(data)
-    vendor_dir = assets_dir / "vendor"
-    if vendor_dir.exists():
-        shutil.rmtree(vendor_dir)
-    external_css_links: List[Dict[str, str]] = []
-    external_js_links: List[Dict[str, object]] = []
-    for ext_asset in project.external:
-        href = ext_asset.href.strip()
-        if ext_asset.mode == "local":
-            rel_path = Path(href) if href else Path()
-            if rel_path.is_absolute():
-                rel_path = Path(rel_path.name)
-            if rel_path.parts and rel_path.parts[0] == "assets":
-                base_rel = rel_path
-            else:
-                name = rel_path.name if rel_path.name else ""
-                if not name:
-                    name = "external"
-                suffix = ".css" if ext_asset.kind == "css" else ".js"
-                if Path(name).suffix.lower() not in {".css", ".js"}:
-                    name = f"{Path(name).stem}{suffix}"
-                base_rel = Path("assets") / "vendor" / name
-            if base_rel.suffix.lower() not in {".css", ".js"}:
-                suffix = ".css" if ext_asset.kind == "css" else ".js"
-                base_rel = base_rel.with_suffix(suffix)
-            rel_path = base_rel
-            dest_path = output_dir / rel_path
-            data_payload = ext_asset.data_base64 or ""
-            if data_payload:
-                dest_path.parent.mkdir(parents=True, exist_ok=True)
-                dest_path.write_bytes(base64.b64decode(data_payload.encode("ascii")))
-            href = rel_path.as_posix()
-        if not href:
-            continue
-        entry: Dict[str, object] = {"href": href}
-        if ext_asset.sri:
-            entry["sri"] = ext_asset.sri
-        if ext_asset.kind == "css":
-            external_css_links.append(cast(Dict[str, str], entry))
-        else:
-            entry["defer"] = True
-            external_js_links.append(entry)
     js_needed = project.use_main_js or project.use_scroll_animations
     if js_needed:
         js_dir.mkdir(parents=True, exist_ok=True)
@@ -4065,8 +3626,6 @@ def render_site(project: Project, output_dir: Path) -> None:
             content=page.html,
             include_js=project.use_main_js,
             use_scroll_js=project.use_scroll_animations,
-            external_css=external_css_links,
-            external_js=external_js_links,
             color_primary=project.palette.get("primary", DEFAULT_PALETTE["primary"]),
             color_surface=project.palette.get("surface", DEFAULT_PALETTE["surface"]),
             color_text=project.palette.get("text", DEFAULT_PALETTE["text"]),
@@ -4852,9 +4411,8 @@ class NewProjectWizard(QtWidgets.QDialog):
         helper = QtWidgets.QLabel("Tip: the location should be an empty folder where we'll keep exports and previews.")
         helper.setWordWrap(True)
         layout.addRow(helper)
-        default_dir = self.settings.get("last_save_dir", str(projects_root()))
-        if not self.describe_location.text().strip():
-            self.describe_location.setText(default_dir)
+        last = self.settings.get("last_save_dir", str(Path.home()))
+        self.describe_location.setText(last)
         self.describe_name.textChanged.connect(self._update_template_preview)
         return page
 
@@ -5048,7 +4606,7 @@ class NewProjectWizard(QtWidgets.QDialog):
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Choose save location",
-            self.settings.get("last_save_dir", str(projects_root())),
+            self.settings.get("last_save_dir", str(Path.home())),
         )
         if directory:
             self.describe_location.setText(directory)
@@ -5375,9 +4933,7 @@ class StartWindow(QtWidgets.QMainWindow):
         self.create_name.setText("My Site")
         self.create_location = QtWidgets.QLineEdit(form_group)
         self.create_location.setPlaceholderText("Where to save the .siteproj file")
-        default_dir = self.settings.get("last_save_dir", str(projects_root()))
-        if not self.create_location.text().strip():
-            self.create_location.setText(default_dir)
+        self.create_location.setText(self.settings.get("last_save_dir", str(Path.home())))
         browse = QtWidgets.QPushButton("Browse…", form_group)
         browse.clicked.connect(self._browse_save_location)
         location_layout = QtWidgets.QHBoxLayout()
@@ -5626,7 +5182,7 @@ class StartWindow(QtWidgets.QMainWindow):
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Choose where to save",
-            self.settings.get("last_save_dir", str(projects_root())),
+            self.settings.get("last_save_dir", str(Path.home())),
         )
         if directory:
             self.create_location.setText(directory)
@@ -5739,7 +5295,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Open project",
-            self.settings.get("last_open_dir", str(projects_root())),
+            self.settings.get("last_open_dir", str(Path.home())),
             "Webineer Project (*.siteproj)",
         )
         if path:
@@ -5756,7 +5312,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Import project",
-            self.settings.get("last_open_dir", str(projects_root())),
+            self.settings.get("last_open_dir", str(Path.home())),
             "Webineer Project (*.siteproj)",
         )
         if path:
@@ -5997,10 +5553,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab_editors.addTab(self.css_editor, "Global CSS")
         self.design_tab = self._build_design_tab()
         self.assets_tab = self._build_assets_tab()
-        self.external_tab = self._build_external_tab()
         self.tab_editors.addTab(self.design_tab, "Design")
         self.tab_editors.addTab(self.assets_tab, "Assets")
-        self.tab_editors.addTab(self.external_tab, "External")
 
         # Preview
         right = QtWidgets.QWidget(self)
@@ -6085,123 +5639,6 @@ class MainWindow(QtWidgets.QMainWindow):
         theme_layout.addRow(button_row)
 
         main_layout.addWidget(theme_group)
-
-        background_group = QtWidgets.QGroupBox("Background", tab)
-        background_layout = QtWidgets.QFormLayout(background_group)
-        background_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-
-        self.background_scope_combo = QtWidgets.QComboBox(background_group)
-        self.background_scope_combo.addItems(["Entire site", "Current page"])
-        background_layout.addRow("Scope", self.background_scope_combo)
-
-        self.background_kind_combo = QtWidgets.QComboBox(background_group)
-        self.background_kind_combo.addItems(["Solid", "Gradient", "Image", "Pattern"])
-        background_layout.addRow("Style", self.background_kind_combo)
-
-        self.background_stack = QtWidgets.QStackedWidget(background_group)
-        background_layout.addRow("Options", self.background_stack)
-
-        solid_widget = QtWidgets.QWidget(background_group)
-        solid_layout = QtWidgets.QHBoxLayout(solid_widget)
-        solid_layout.setContentsMargins(0, 0, 0, 0)
-        solid_layout.setSpacing(6)
-        self.background_solid_color = QtWidgets.QLineEdit("#0f172a", solid_widget)
-        self.background_solid_color.setPlaceholderText("#0f172a")
-        solid_layout.addWidget(self.background_solid_color, 1)
-        self.background_solid_pick = QtWidgets.QPushButton("Pick…", solid_widget)
-        self.background_solid_pick.clicked.connect(lambda: self._pick_color_into(self.background_solid_color))
-        solid_layout.addWidget(self.background_solid_pick)
-        self.background_stack.addWidget(solid_widget)
-
-        gradient_widget_bg = QtWidgets.QWidget(background_group)
-        gradient_form = QtWidgets.QFormLayout(gradient_widget_bg)
-        gradient_form.setContentsMargins(0, 0, 0, 0)
-        gradient_form.setSpacing(6)
-        self.background_gradient_from = QtWidgets.QLineEdit("#0ea5e9", gradient_widget_bg)
-        gradient_from_row = QtWidgets.QHBoxLayout()
-        gradient_from_widget = QtWidgets.QWidget(gradient_widget_bg)
-        gradient_from_widget.setLayout(gradient_from_row)
-        gradient_from_row.setContentsMargins(0, 0, 0, 0)
-        gradient_from_row.setSpacing(6)
-        gradient_from_row.addWidget(self.background_gradient_from, 1)
-        self.background_gradient_from_pick = QtWidgets.QPushButton("Pick…", gradient_widget_bg)
-        self.background_gradient_from_pick.clicked.connect(lambda: self._pick_color_into(self.background_gradient_from))
-        gradient_from_row.addWidget(self.background_gradient_from_pick)
-        gradient_form.addRow("From", gradient_from_widget)
-        self.background_gradient_to = QtWidgets.QLineEdit("#a855f7", gradient_widget_bg)
-        gradient_to_row = QtWidgets.QHBoxLayout()
-        gradient_to_widget = QtWidgets.QWidget(gradient_widget_bg)
-        gradient_to_widget.setLayout(gradient_to_row)
-        gradient_to_row.setContentsMargins(0, 0, 0, 0)
-        gradient_to_row.setSpacing(6)
-        gradient_to_row.addWidget(self.background_gradient_to, 1)
-        self.background_gradient_to_pick = QtWidgets.QPushButton("Pick…", gradient_widget_bg)
-        self.background_gradient_to_pick.clicked.connect(lambda: self._pick_color_into(self.background_gradient_to))
-        gradient_to_row.addWidget(self.background_gradient_to_pick)
-        gradient_form.addRow("To", gradient_to_widget)
-        self.background_gradient_angle = QtWidgets.QSpinBox(gradient_widget_bg)
-        self.background_gradient_angle.setRange(0, 360)
-        self.background_gradient_angle.setSuffix("°")
-        self.background_gradient_angle.setValue(135)
-        gradient_form.addRow("Angle", self.background_gradient_angle)
-        self.background_stack.addWidget(gradient_widget_bg)
-
-        image_widget = QtWidgets.QWidget(background_group)
-        image_form = QtWidgets.QFormLayout(image_widget)
-        image_form.setContentsMargins(0, 0, 0, 0)
-        image_form.setSpacing(6)
-        image_path_widget = QtWidgets.QWidget(image_widget)
-        image_path_layout = QtWidgets.QHBoxLayout(image_path_widget)
-        image_path_layout.setContentsMargins(0, 0, 0, 0)
-        image_path_layout.setSpacing(6)
-        self.background_image_path = QtWidgets.QLineEdit(image_widget)
-        image_path_layout.addWidget(self.background_image_path, 1)
-        self.background_image_browse = QtWidgets.QPushButton("Browse…", image_widget)
-        self.background_image_browse.clicked.connect(self._choose_background_image)
-        image_path_layout.addWidget(self.background_image_browse)
-        image_form.addRow("Image", image_path_widget)
-        self.background_image_position = QtWidgets.QComboBox(image_widget)
-        self.background_image_position.addItems(["center", "top", "bottom", "left", "right", "center top", "center bottom"])
-        image_form.addRow("Position", self.background_image_position)
-        self.background_image_size = QtWidgets.QComboBox(image_widget)
-        self.background_image_size.addItems(["cover", "contain", "auto"])
-        image_form.addRow("Size", self.background_image_size)
-        self.background_image_fixed = QtWidgets.QCheckBox("Fixed while scrolling", image_widget)
-        image_form.addRow(self.background_image_fixed)
-        self.background_stack.addWidget(image_widget)
-
-        pattern_widget = QtWidgets.QWidget(background_group)
-        pattern_form = QtWidgets.QFormLayout(pattern_widget)
-        pattern_form.setContentsMargins(0, 0, 0, 0)
-        pattern_form.setSpacing(6)
-        self.background_pattern_combo = QtWidgets.QComboBox(pattern_widget)
-        for pattern in BACKGROUND_PATTERNS:
-            self.background_pattern_combo.addItem(pattern["label"], pattern)
-        pattern_form.addRow("Pattern", self.background_pattern_combo)
-        self.background_pattern_preview = QtWidgets.QLabel(pattern_widget)
-        self.background_pattern_preview.setMinimumHeight(72)
-        self.background_pattern_preview.setFrameShape(QtWidgets.QFrame.Shape.Panel)
-        self.background_pattern_preview.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
-        pattern_form.addRow("Preview", self.background_pattern_preview)
-        self.background_stack.addWidget(pattern_widget)
-
-        self.background_insert_markup = QtWidgets.QCheckBox(
-            "Also insert markup (wrap selection or add a section)", background_group
-        )
-        self.background_insert_markup.setChecked(True)
-        background_layout.addRow(self.background_insert_markup)
-
-        bg_buttons_layout = QtWidgets.QHBoxLayout()
-        self.background_apply_btn = QtWidgets.QPushButton("Apply Background", background_group)
-        self.background_reset_btn = QtWidgets.QPushButton("Reset", background_group)
-        bg_buttons_layout.addWidget(self.background_apply_btn)
-        bg_buttons_layout.addWidget(self.background_reset_btn)
-        bg_buttons_layout.addStretch()
-        bg_button_widget = QtWidgets.QWidget(background_group)
-        bg_button_widget.setLayout(bg_buttons_layout)
-        background_layout.addRow(bg_button_widget)
-
-        main_layout.addWidget(background_group)
 
         gradient_group = QtWidgets.QGroupBox("Gradients", tab)
         gradient_layout = QtWidgets.QFormLayout(gradient_group)
@@ -6317,57 +5754,6 @@ class MainWindow(QtWidgets.QMainWindow):
         note.setWordWrap(True)
         main_layout.addWidget(note)
         main_layout.addStretch(1)
-        self.background_kind_combo.currentIndexChanged.connect(self._on_background_kind_changed)
-        self.background_scope_combo.currentIndexChanged.connect(self._on_background_scope_changed)
-        self.background_pattern_combo.currentIndexChanged.connect(self._update_background_pattern_preview)
-        self.background_apply_btn.clicked.connect(self.apply_background_from_ui)
-        self.background_reset_btn.clicked.connect(self.reset_background)
-        self._on_background_kind_changed(self.background_kind_combo.currentIndex())
-        self._on_background_scope_changed(self.background_scope_combo.currentIndex())
-        self._update_background_pattern_preview()
-        return tab
-
-    def _build_external_tab(self) -> QtWidgets.QWidget:
-        tab = QtWidgets.QWidget(self)
-        layout = QtWidgets.QVBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-
-        button_row = QtWidgets.QHBoxLayout()
-        self.btn_external_add_css = QtWidgets.QPushButton("Add CSS", tab)
-        self.btn_external_add_css.setToolTip("Link a stylesheet from a CDN or keep a local copy.")
-        self.btn_external_add_js = QtWidgets.QPushButton("Add JS", tab)
-        self.btn_external_add_js.setToolTip("Link a script from a CDN or keep a local copy.")
-        self.btn_external_download = QtWidgets.QPushButton("Download to assets", tab)
-        self.btn_external_download.setToolTip("Store the selected CDN asset inside assets/vendor/ for offline use.")
-        self.btn_external_download.setEnabled(False)
-        button_row.addWidget(self.btn_external_add_css)
-        button_row.addWidget(self.btn_external_add_js)
-        button_row.addWidget(self.btn_external_download)
-        button_row.addStretch()
-        layout.addLayout(button_row)
-
-        self.external_table = QtWidgets.QTableWidget(tab)
-        self.external_table.setColumnCount(4)
-        self.external_table.setHorizontalHeaderLabels(["Type", "Mode", "URL / Path", "Actions"])
-        self.external_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
-        self.external_table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
-        self.external_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.external_table.setAlternatingRowColors(True)
-        header = self.external_table.horizontalHeader()
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.external_table.verticalHeader().setVisible(False)
-        layout.addWidget(self.external_table, 1)
-
-        note = QtWidgets.QLabel(
-            "Link trusted CDNs or keep offline copies. Downloaded files live in assets/vendor/ so previews and exports stay reliable."
-        )
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        layout.addStretch()
         return tab
 
     def _build_assets_tab(self) -> QtWidgets.QWidget:
@@ -6416,10 +5802,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_save = QtGui.QAction("Save", self)
         self.act_save_as = QtGui.QAction("Save As…", self)
         self.act_export = QtGui.QAction("Export…", self)
-        self.act_open_projects_root = QtGui.QAction("Open MyWebsites Folder", self)
-        self.act_open_projects_root.triggered.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(projects_root())))
-        )
         self.act_start = QtGui.QAction("Start Page", self)
         self.act_quit = QtGui.QAction("Quit", self)
         self.act_new.setShortcut("Ctrl+N")
@@ -6434,8 +5816,6 @@ class MainWindow(QtWidgets.QMainWindow):
             file_menu.addActions([self.act_save, self.act_save_as])
             file_menu.addSeparator()
             file_menu.addAction(self.act_export)
-            file_menu.addSeparator()
-            file_menu.addAction(self.act_open_projects_root)
             file_menu.addSeparator()
             file_menu.addAction(self.act_start)
             file_menu.addSeparator()
@@ -6533,10 +5913,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_set_cover_image.clicked.connect(self._set_cover_image_from_asset)
         self.btn_generate_placeholder.clicked.connect(self._generate_placeholder_asset)
         self.btn_insert_image.clicked.connect(self._insert_image_dialog)
-        self.btn_external_add_css.clicked.connect(lambda: self._add_external_asset("css"))
-        self.btn_external_add_js.clicked.connect(lambda: self._add_external_asset("js"))
-        self.btn_external_download.clicked.connect(self._download_selected_external)
-        self.external_table.itemSelectionChanged.connect(self._update_external_buttons_state)
         self.act_new.triggered.connect(lambda: self.maybe_save_before("creating a new project") and self.new_project_bootstrap())
         self.act_open.triggered.connect(lambda: self.maybe_save_before("opening another project") and self.open_project_dialog())
         self.act_save.triggered.connect(self.save_project)
@@ -6643,7 +6019,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_color_swatches()
         self._update_gradient_preview()
         self._refresh_assets()
-        self._refresh_external_table()
         self.update_window_title()
 
     # Page management ---------------------------------------------------
@@ -6672,7 +6047,6 @@ class MainWindow(QtWidgets.QMainWindow):
         css = generate_base_css(palette, fonts)
         if spec.include_helpers:
             css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
-            css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
         if spec.extra_css.strip():
             css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
         pages = [
@@ -6873,11 +6247,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project.shadow_level,
         )
         css = ensure_block(base_css, CSS_HELPERS_SENTINEL, helper_block)
-        css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
         css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(self.project.gradients))
         css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(self.project.motion_pref))
-        bg_block = backgrounds_block(self.project.backgrounds)
-        css = set_css_block(css, BACKGROUND_SENTINEL, bg_block if bg_block else None)
         if extra_block:
             css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
         return css
@@ -6964,7 +6335,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def add_css_helpers(self) -> None:
         css = self.css_editor.toPlainText()
         updated = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
-        updated = ensure_block(updated, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
         if updated == css:
             QtWidgets.QMessageBox.information(self, "Already added", "CSS helpers are already in your stylesheet.")
             return
@@ -7000,323 +6370,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_dirty(True)
         self.update_preview()
         self.status_bar.showMessage("Gradient hero inserted", 2500)
-
-    def _pick_color_into(self, target: Optional[QtWidgets.QLineEdit]) -> None:
-        if target is None:
-            return
-        color = QtWidgets.QColorDialog.getColor(QtGui.QColor(target.text()), self, "Select color")
-        if color.isValid():
-            target.setText(color.name())
-
-    def _choose_background_image(self) -> None:
-        if not self.project or self.background_image_path is None:
-            return
-        start_dir = self.settings.get("last_asset_dir", str(Path.home()))
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "Select background image",
-            start_dir,
-            "Images (*.png *.jpg *.jpeg *.gif *.svg)",
-        )
-        if path:
-            self.settings.set("last_asset_dir", str(Path(path).parent))
-            self.background_image_path.setText(path)
-
-    def _on_background_kind_changed(self, index: int) -> None:
-        if self.background_stack is None:
-            return
-        if index < 0 or index >= self.background_stack.count():
-            index = 0
-        self.background_stack.setCurrentIndex(index)
-
-    def _on_background_scope_changed(self, index: int) -> None:
-        if self.background_insert_markup is None:
-            return
-        enable_markup = index == 1
-        self.background_insert_markup.setEnabled(enable_markup)
-        if not enable_markup:
-            self.background_insert_markup.setChecked(False)
-        elif not self.background_insert_markup.isChecked():
-            self.background_insert_markup.setChecked(True)
-
-    def _update_background_pattern_preview(self) -> None:
-        if self.background_pattern_combo is None or self.background_pattern_preview is None:
-            return
-        data = self.background_pattern_combo.currentData()
-        if isinstance(data, dict):
-            svg = data.get("svg", "")
-            if svg:
-                encoded = base64.b64encode(svg.encode("utf-8")).decode("ascii")
-                self.background_pattern_preview.setStyleSheet(
-                    "background-image: url('data:image/svg+xml;base64,"
-                    + encoded
-                    + "'); background-repeat: repeat; border: 1px solid rgba(148,163,184,0.4); border-radius: 6px;"
-                )
-                self.background_pattern_preview.setText(" ")
-                return
-        self.background_pattern_preview.setStyleSheet("")
-        self.background_pattern_preview.setText("Pattern preview")
-
-    def _upsert_background_spec(self, spec: BackgroundSpec) -> None:
-        if not self.project:
-            return
-        replaced = False
-        for idx, existing in enumerate(self.project.backgrounds):
-            if existing.scope != spec.scope:
-                continue
-            if spec.scope == "page":
-                if existing.value.get("page") == spec.value.get("page"):
-                    self.project.backgrounds[idx] = spec
-                    replaced = True
-                    break
-            else:
-                self.project.backgrounds[idx] = spec
-                replaced = True
-                break
-        if not replaced:
-            self.project.backgrounds.append(spec)
-
-    def _background_hint_comment(self, class_name: str) -> str:
-        return f"{BACKGROUND_HINT_PREFIX} add class \"{class_name}\" to a wrapper element -->"
-
-    def _remove_background_hint_text(self, html: str, *, slug: Optional[str] = None) -> str:
-        if slug:
-            pattern = re.compile(
-                rf"{re.escape(BACKGROUND_HINT_PREFIX)}[^-]*{re.escape(slug)}[^-]*-->\s*",
-                re.IGNORECASE,
-            )
-            return re.sub(pattern, "", html)
-        pattern = re.compile(rf"{re.escape(BACKGROUND_HINT_PREFIX)}.*?-->\s*", re.IGNORECASE)
-        return re.sub(pattern, "", html)
-
-    def _prepend_background_hint(self, page_index: int, class_name: str) -> None:
-        if not self.project or page_index < 0 or page_index >= len(self.project.pages):
-            return
-        page = self.project.pages[page_index]
-        comment = self._background_hint_comment(class_name)
-        cleaned = self._remove_background_hint_text(page.html, slug=class_name)
-        updated = f"{comment}\n{cleaned.lstrip()}" if cleaned.strip() else comment
-        page.html = updated
-        if self.pages_list.currentRow() == page_index:
-            self.html_editor.blockSignals(True)
-            self.html_editor.setPlainText(updated)
-            self.html_editor.blockSignals(False)
-
-    def _remove_background_hint(self, page_index: int, slug: Optional[str] = None) -> None:
-        if not self.project or page_index < 0 or page_index >= len(self.project.pages):
-            return
-        page = self.project.pages[page_index]
-        cleaned = self._remove_background_hint_text(page.html, slug=slug)
-        if cleaned != page.html:
-            page.html = cleaned
-            if self.pages_list.currentRow() == page_index:
-                self.html_editor.blockSignals(True)
-                self.html_editor.setPlainText(cleaned)
-                self.html_editor.blockSignals(False)
-
-    def _insert_background_markup(self, spec: BackgroundSpec, page_index: int) -> None:
-        if spec.scope != "page":
-            return
-        class_name = spec.value.get("slug", "page-bg")
-        classes: List[str] = [class_name]
-        if spec.kind == "image":
-            classes.insert(0, "bg-cover")
-            if spec.value.get("fixed") == "1":
-                classes.append("bg-fixed")
-        else:
-            classes.insert(0, "section")
-        cursor = self.html_editor.textCursor()
-        if cursor.hasSelection():
-            selected = cursor.selectedText().replace("\u2029", "\n")
-            wrapper = f"<section class=\"{' '.join(classes)}\">\n{selected}\n</section>"
-            cursor.insertText(wrapper)
-        else:
-            if spec.kind == "image":
-                markup = (
-                    f"\n\n<section class=\"{' '.join(classes)}\">\n"
-                    "  <div class=\"glass tile\">\n"
-                    "    <h2>Headline on image</h2>\n"
-                    "    <p class=\"muted\">Your message goes here.</p>\n"
-                    "    <a class=\"btn neon-btn\" href=\"#\">Explore</a>\n"
-                    "  </div>\n"
-                    "</section>\n\n"
-                )
-            else:
-                markup = (
-                    f"\n\n<section class=\"{' '.join(classes)}\">\n"
-                    "  <div class=\"stack center\">\n"
-                    "    <h2>Set the mood</h2>\n"
-                    "    <p class=\"muted\">Add supporting copy to this backdrop.</p>\n"
-                    "    <a class=\"btn btn-primary\" href=\"#\">Call to action</a>\n"
-                    "  </div>\n"
-                    "</section>\n\n"
-                )
-            cursor.insertText(markup)
-        self.html_editor.setTextCursor(cursor)
-        if 0 <= page_index < len(self.project.pages):
-            self.project.pages[page_index].html = self.html_editor.toPlainText()
-
-    def apply_background_from_ui(self) -> None:
-        if not self.project:
-            return
-        self._flush_editors_to_model()
-        scope = "site" if self.background_scope_combo.currentIndex() == 0 else "page"
-        kind_index = self.background_kind_combo.currentIndex()
-        kind_options = ["solid", "gradient", "image", "pattern"]
-        kind = kind_options[kind_index] if 0 <= kind_index < len(kind_options) else "solid"
-        value: Dict[str, str] = {}
-        page_index = self.pages_list.currentRow()
-        page: Optional[Page] = None
-        if scope == "page":
-            if page_index < 0 or page_index >= len(self.project.pages):
-                QtWidgets.QMessageBox.warning(self, "Select page", "Choose a page before applying this background.")
-                return
-            page = self.project.pages[page_index]
-            slug_source = Path(page.filename).stem if page.filename else page.title
-            slug = slugify(slug_source or "page")
-            value["page"] = page.filename
-            value["slug"] = slug
-        if kind == "solid":
-            color = self.background_solid_color.text().strip() or "#0f172a"
-            value["color"] = color
-        elif kind == "gradient":
-            from_color = self.background_gradient_from.text().strip() or "#0ea5e9"
-            to_color = self.background_gradient_to.text().strip() or "#a855f7"
-            angle = f"{int(self.background_gradient_angle.value())}deg"
-            value.update({"from": from_color, "to": to_color, "angle": angle})
-        elif kind == "image":
-            if self.background_image_path is None:
-                return
-            path_text = self.background_image_path.text().strip()
-            if not path_text:
-                QtWidgets.QMessageBox.warning(self, "Select image", "Choose an image to use for the background.")
-                return
-            asset_name: Optional[str]
-            url: Optional[str]
-            if path_text.startswith("assets/"):
-                asset_name = Path(path_text).name
-                if not any(img.name == asset_name for img in self.project.images):
-                    QtWidgets.QMessageBox.warning(
-                        self,
-                        "Missing asset",
-                        "Add the image in the Assets tab before referencing it as a background.",
-                    )
-                    return
-                url = path_text
-            else:
-                path = Path(path_text)
-                if not path.exists():
-                    QtWidgets.QMessageBox.warning(self, "Image not found", "Select a valid image file.")
-                    return
-                asset = self._asset_from_file(path)
-                if asset is None:
-                    return
-                asset.name = self._unique_asset_name(asset.name)
-                self.project.images.append(asset)
-                self._refresh_assets()
-                asset_name = asset.name
-                url = f"assets/images/{asset_name}"
-                self.background_image_path.setText(str(path))
-            if url is None or asset_name is None:
-                return
-            value.update(
-                {
-                    "asset": asset_name,
-                    "url": url,
-                    "position": self.background_image_position.currentText(),
-                    "size": self.background_image_size.currentText(),
-                    "repeat": "no-repeat",
-                }
-            )
-            if self.background_image_fixed.isChecked():
-                value["fixed"] = "1"
-            else:
-                value.pop("fixed", None)
-            self.background_image_path.setText(url)
-        elif kind == "pattern":
-            data = self.background_pattern_combo.currentData() if self.background_pattern_combo is not None else None
-            if not isinstance(data, dict):
-                QtWidgets.QMessageBox.warning(self, "Pattern", "Choose a pattern to apply.")
-                return
-            svg = data.get("svg", "")
-            if not svg:
-                QtWidgets.QMessageBox.warning(self, "Pattern", "Pattern data is missing.")
-                return
-            value.update(
-                {
-                    "pattern": data.get("key", "pattern"),
-                    "svg": svg,
-                    "opacity": data.get("opacity", "0.45"),
-                }
-            )
-        spec = BackgroundSpec(scope=scope, kind=kind, value=value)
-        self._upsert_background_spec(spec)
-        current_css = self.css_editor.toPlainText()
-        bg_block = backgrounds_block(self.project.backgrounds)
-        new_css = set_css_block(current_css, BACKGROUND_SENTINEL, bg_block if bg_block else None)
-        new_css = ensure_block(new_css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
-        self.css_editor.setPlainText(new_css)
-        self.project.css = new_css
-        if scope == "page" and page is not None:
-            slug = spec.value.get("slug", "")
-            self._remove_background_hint(page_index, slug)
-            if self.background_insert_markup.isChecked():
-                self._insert_background_markup(spec, page_index)
-            else:
-                self._prepend_background_hint(page_index, slug)
-            self.project.pages[page_index].html = self.html_editor.toPlainText()
-        self.set_dirty(True)
-        self.update_preview()
-        self.status_bar.showMessage("Background applied", 3000)
-
-    def reset_background(self) -> None:
-        if not self.project:
-            return
-        scope = "site" if self.background_scope_combo.currentIndex() == 0 else "page"
-        target_page_index = self.pages_list.currentRow()
-        if scope == "page":
-            if target_page_index < 0 or target_page_index >= len(self.project.pages):
-                QtWidgets.QMessageBox.information(self, "Select page", "Choose a page to reset.")
-                return
-        kept: List[BackgroundSpec] = []
-        removed = False
-        target_page = self.project.pages[target_page_index] if scope == "page" else None
-        for spec in self.project.backgrounds:
-            if spec.scope != scope:
-                kept.append(spec)
-                continue
-            if scope == "page" and spec.value.get("page") != (target_page.filename if target_page else ""):
-                kept.append(spec)
-                continue
-            removed = True
-        if not removed:
-            QtWidgets.QMessageBox.information(self, "Nothing to reset", "No stored background for this selection.")
-            return
-        self.project.backgrounds = kept
-        current_css = self.css_editor.toPlainText()
-        bg_block = backgrounds_block(self.project.backgrounds)
-        new_css = set_css_block(current_css, BACKGROUND_SENTINEL, bg_block if bg_block else None)
-        self.css_editor.setPlainText(new_css)
-        self.project.css = new_css
-        if scope == "page" and target_page is not None:
-            slug = slugify(Path(target_page.filename).stem if target_page.filename else target_page.title or "page")
-            self._remove_background_hint(target_page_index, slug)
-            self.project.pages[target_page_index].html = self.html_editor.toPlainText()
-        self.background_solid_color.setText("#0f172a")
-        self.background_gradient_from.setText("#0ea5e9")
-        self.background_gradient_to.setText("#a855f7")
-        self.background_gradient_angle.setValue(135)
-        if self.background_image_path is not None:
-            self.background_image_path.clear()
-        self.background_image_position.setCurrentIndex(0)
-        self.background_image_size.setCurrentIndex(0)
-        self.background_image_fixed.setChecked(False)
-        if self.background_pattern_combo.count():
-            self.background_pattern_combo.setCurrentIndex(0)
-        self._update_background_pattern_preview()
-        self.set_dirty(True)
-        self.update_preview()
-        self.status_bar.showMessage("Background reset", 2500)
 
     def _update_color_swatches(self) -> None:
         def set_swatch(label: QtWidgets.QLabel, color: str) -> None:
@@ -7429,334 +6482,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.project:
             return
         self._apply_motion_wrapper(self.project.motion_default_effect)
-
-    # External assets management ---------------------------------------
-    def _refresh_external_table(self, *, select: Optional[int] = None) -> None:
-        if not self.project:
-            return
-        assets = self.project.external
-        self.external_table.setUpdatesEnabled(False)
-        self.external_table.clearContents()
-        self.external_table.setRowCount(len(assets))
-        for row, asset in enumerate(assets):
-            type_item = QtWidgets.QTableWidgetItem("CSS" if asset.kind == "css" else "JS")
-            type_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.external_table.setItem(row, 0, type_item)
-
-            mode_label = "Local" if asset.mode == "local" else "CDN"
-            mode_item = QtWidgets.QTableWidgetItem(mode_label)
-            mode_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.external_table.setItem(row, 1, mode_item)
-
-            href_text = asset.href.strip()
-            url_item = QtWidgets.QTableWidgetItem(href_text)
-            url_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            url_item.setToolTip(href_text)
-            self.external_table.setItem(row, 2, url_item)
-
-            action_widget = QtWidgets.QWidget(self.external_table)
-            action_layout = QtWidgets.QHBoxLayout(action_widget)
-            action_layout.setContentsMargins(0, 0, 0, 0)
-            action_layout.setSpacing(4)
-
-            btn_up = QtWidgets.QToolButton(action_widget)
-            btn_up.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp))
-            btn_up.setAutoRaise(True)
-            btn_up.setEnabled(row > 0)
-            btn_up.setToolTip("Move up")
-            btn_up.clicked.connect(lambda _=False, r=row: self._move_external_up(r))
-            action_layout.addWidget(btn_up)
-
-            btn_down = QtWidgets.QToolButton(action_widget)
-            btn_down.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowDown))
-            btn_down.setAutoRaise(True)
-            btn_down.setEnabled(row < len(assets) - 1)
-            btn_down.setToolTip("Move down")
-            btn_down.clicked.connect(lambda _=False, r=row: self._move_external_down(r))
-            action_layout.addWidget(btn_down)
-
-            btn_remove = QtWidgets.QToolButton(action_widget)
-            btn_remove.setIcon(self.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCloseButton))
-            btn_remove.setAutoRaise(True)
-            btn_remove.setToolTip("Remove")
-            btn_remove.clicked.connect(lambda _=False, r=row: self._remove_external_entry(r))
-            action_layout.addWidget(btn_remove)
-            action_layout.addStretch()
-            self.external_table.setCellWidget(row, 3, action_widget)
-
-        self.external_table.setUpdatesEnabled(True)
-        if assets:
-            if select is not None and 0 <= select < len(assets):
-                self.external_table.selectRow(select)
-            elif self.external_table.currentRow() < 0:
-                self.external_table.selectRow(0)
-        else:
-            self.external_table.clearSelection()
-        self._update_external_buttons_state()
-
-    def _update_external_buttons_state(self) -> None:
-        enable_download = False
-        if self.project and hasattr(self, "external_table"):
-            selection = self.external_table.selectionModel()
-            row = selection.selectedRows()[0].row() if selection and selection.selectedRows() else -1
-            if 0 <= row < len(self.project.external):
-                asset = self.project.external[row]
-                enable_download = asset.mode == "cdn" and self._is_remote_url(asset.href)
-        if hasattr(self, "btn_external_download"):
-            self.btn_external_download.setEnabled(enable_download)
-
-    def _add_external_asset(self, kind: str) -> None:
-        if not self.project:
-            return
-
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Add external CSS" if kind == "css" else "Add external script")
-        dialog.setModal(True)
-        layout = QtWidgets.QVBoxLayout(dialog)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-
-        form = QtWidgets.QFormLayout()
-        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
-        source_edit = QtWidgets.QLineEdit(dialog)
-        placeholder = (
-            "https://cdn.example.com/styles.css"
-            if kind == "css"
-            else "https://cdn.example.com/app.js"
-        )
-        source_edit.setPlaceholderText(placeholder)
-        form.addRow("Source", source_edit)
-
-        mode_combo = QtWidgets.QComboBox(dialog)
-        mode_combo.addItem("Link (keep online)", "cdn")
-        mode_combo.addItem("Download now (store offline)", "local")
-        form.addRow("Mode", mode_combo)
-
-        layout.addLayout(form)
-
-        browse_btn = QtWidgets.QPushButton("Choose file…", dialog)
-        browse_btn.setToolTip("Pick a local file to keep with your project.")
-
-        def _browse_file() -> None:
-            start_dir = self.settings.get("last_external_dir", self.settings.get("last_asset_dir", str(Path.home())))
-            filter_css = "CSS files (*.css);;All files (*)"
-            filter_js = "JavaScript files (*.js);;All files (*)"
-            filters = filter_css if kind == "css" else filter_js
-            path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Choose file", start_dir, filters)
-            if path:
-                source_edit.setText(path)
-                mode_combo.setCurrentIndex(1)
-                self.settings.set("last_external_dir", str(Path(path).parent))
-
-        browse_btn.clicked.connect(_browse_file)
-        layout.addWidget(browse_btn, alignment=Qt.AlignmentFlag.AlignRight)
-
-        hint = QtWidgets.QLabel(
-            "Tip: Downloading saves a copy in assets/vendor/ so everything works offline."
-        )
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-
-        buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
-            Qt.Orientation.Horizontal,
-            dialog,
-        )
-
-        def _accept() -> None:
-            if not source_edit.text().strip():
-                QtWidgets.QMessageBox.warning(dialog, "Source required", "Enter a URL or choose a file.")
-                return
-            dialog.accept()
-
-        buttons.accepted.connect(_accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
-            return
-
-        source = source_edit.text().strip()
-        mode_value = str(mode_combo.currentData())
-        data_payload: Optional[str] = None
-        href = source
-        mode_final = mode_value if mode_value in {"cdn", "local"} else "cdn"
-
-        local_path = Path(source).expanduser()
-        if local_path.exists():
-            try:
-                data_bytes = local_path.read_bytes()
-            except Exception as exc:
-                QtWidgets.QMessageBox.warning(self, "File error", f"Could not read {local_path.name}: {exc}")
-                return
-            filename = self._unique_external_filename(local_path.name, kind)
-            href = (Path("assets") / "vendor" / filename).as_posix()
-            data_payload = base64.b64encode(data_bytes).decode("ascii")
-            mode_final = "local"
-            self.settings.set("last_external_dir", str(local_path.parent))
-        elif self._is_remote_url(source):
-            if mode_final == "local":
-                QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-                try:
-                    download = self._download_external_content(source)
-                finally:
-                    QtWidgets.QApplication.restoreOverrideCursor()
-                if not download:
-                    return
-                data_bytes, _content_type = download
-                parsed = urllib.parse.urlparse(source)
-                base_name = urllib.parse.unquote(Path(parsed.path).name) or f"external-{kind}"
-                filename = self._unique_external_filename(base_name, kind)
-                href = (Path("assets") / "vendor" / filename).as_posix()
-                data_payload = base64.b64encode(data_bytes).decode("ascii")
-                mode_final = "local"
-            else:
-                href = source
-        else:
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Enter a link",
-                "Provide a full https:// URL or choose a file to bundle.",
-            )
-            return
-
-        asset = ExternalAsset(kind=kind, mode=mode_final, href=href, data_base64=data_payload)
-        self.project.external.append(asset)
-        self._refresh_external_table(select=len(self.project.external) - 1)
-        self.set_dirty(True)
-        self.update_preview()
-        label = "Stylesheet" if kind == "css" else "Script"
-        action = "downloaded" if mode_final == "local" else "linked"
-        self.status_bar.showMessage(f"{label} {action}", 3000)
-
-    def _download_selected_external(self) -> None:
-        if not self.project or not self.project.external:
-            return
-        selection = self.external_table.selectionModel()
-        rows = [index.row() for index in selection.selectedRows()] if selection else []
-        if not rows:
-            QtWidgets.QMessageBox.information(self, "Download", "Choose an external asset first.")
-            return
-        candidates = [
-            row
-            for row in rows
-            if 0 <= row < len(self.project.external)
-            and self.project.external[row].mode == "cdn"
-            and self._is_remote_url(self.project.external[row].href)
-        ]
-        if not candidates:
-            QtWidgets.QMessageBox.information(self, "Download", "Select a CDN entry to download.")
-            return
-        updated = 0
-        for row in candidates:
-            asset = self.project.external[row]
-            url = asset.href.strip()
-            if not url:
-                continue
-            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-            try:
-                download = self._download_external_content(url)
-            finally:
-                QtWidgets.QApplication.restoreOverrideCursor()
-            if not download:
-                continue
-            data_bytes, _content_type = download
-            parsed = urllib.parse.urlparse(url)
-            base_name = urllib.parse.unquote(Path(parsed.path).name) or f"external-{asset.kind}"
-            filename = self._unique_external_filename(base_name, asset.kind)
-            asset.mode = "local"
-            asset.href = (Path("assets") / "vendor" / filename).as_posix()
-            asset.data_base64 = base64.b64encode(data_bytes).decode("ascii")
-            asset.sri = None
-            updated += 1
-        if updated:
-            self._refresh_external_table(select=candidates[0])
-            self.set_dirty(True)
-            self.update_preview()
-            message = "Downloaded 1 asset" if updated == 1 else f"Downloaded {updated} assets"
-            self.status_bar.showMessage(message, 3000)
-        else:
-            self._update_external_buttons_state()
-
-    def _move_external_up(self, row: int) -> None:
-        if not self.project or row <= 0 or row >= len(self.project.external):
-            return
-        self.project.external[row - 1], self.project.external[row] = (
-            self.project.external[row],
-            self.project.external[row - 1],
-        )
-        self._refresh_external_table(select=row - 1)
-        self.set_dirty(True)
-        self.update_preview()
-
-    def _move_external_down(self, row: int) -> None:
-        if not self.project or row < 0 or row >= len(self.project.external) - 1:
-            return
-        self.project.external[row], self.project.external[row + 1] = (
-            self.project.external[row + 1],
-            self.project.external[row],
-        )
-        self._refresh_external_table(select=row + 1)
-        self.set_dirty(True)
-        self.update_preview()
-
-    def _remove_external_entry(self, row: int) -> None:
-        if not self.project or row < 0 or row >= len(self.project.external):
-            return
-        asset = self.project.external[row]
-        label = "stylesheet" if asset.kind == "css" else "script"
-        if (
-            QtWidgets.QMessageBox.question(
-                self,
-                "Remove external asset",
-                f"Remove this {label}?",
-            )
-            != QtWidgets.QMessageBox.StandardButton.Yes
-        ):
-            return
-        del self.project.external[row]
-        next_row = row if row < len(self.project.external) else len(self.project.external) - 1
-        self._refresh_external_table(select=next_row if next_row >= 0 else None)
-        self.set_dirty(True)
-        self.update_preview()
-        self.status_bar.showMessage(f"Removed external {label}", 2500)
-
-    def _download_external_content(self, url: str) -> Optional[Tuple[bytes, Optional[str]]]:
-        try:
-            request = urllib.request.Request(url, headers={"User-Agent": "WebineerSiteBuilder/1.0"})
-            with urllib.request.urlopen(request, timeout=20) as response:
-                data = response.read()
-                content_type = response.headers.get("Content-Type")
-                return data, content_type
-        except urllib.error.URLError as exc:
-            QtWidgets.QMessageBox.warning(self, "Download failed", f"Could not download {url}: {exc}")
-        except Exception as exc:  # noqa: BLE001
-            QtWidgets.QMessageBox.warning(self, "Download failed", f"Unexpected error: {exc}")
-        return None
-
-    def _unique_external_filename(self, base_name: str, kind: str) -> str:
-        ext = ".css" if kind == "css" else ".js"
-        name = base_name.strip() or f"external-{kind}{ext}"
-        name = Path(name).name
-        safe = re.sub(r"[^a-z0-9._-]+", "-", name.lower()).strip("-_.") or f"external-{kind}"
-        if not safe.endswith(ext):
-            safe = f"{safe}{ext}"
-        existing = {
-            Path(asset.href).name
-            for asset in self.project.external
-            if asset.mode == "local" and asset.href
-        }
-        candidate = safe
-        counter = 1
-        stem = Path(safe).stem or f"external-{kind}"
-        while candidate in existing:
-            candidate = f"{stem}-{counter}{ext}"
-            counter += 1
-        return candidate
-
-    def _is_remote_url(self, url: str) -> bool:
-        parsed = urllib.parse.urlparse(url.strip())
-        return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
     # Asset management --------------------------------------------------
     def _refresh_assets(self) -> None:
@@ -7946,7 +6671,7 @@ class MainWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Open project",
-            self.settings.get("last_open_dir", str(projects_root())),
+            self.settings.get("last_open_dir", str(Path.home())),
             "Webineer Project (*.siteproj)",
         )
         if not path:
@@ -7995,12 +6720,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_dirty(False)
 
     def save_project_as(self) -> None:
-        default_dir = Path(self.settings.get("last_save_dir", str(projects_root())))
-        initial_path = self.project_path or default_dir / "MySite.siteproj"
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save project as",
-            str(initial_path),
+            str(self.project_path or Path.home() / "MySite.siteproj"),
             "Webineer Project (*.siteproj)",
         )
         if not path:
@@ -8008,7 +6731,6 @@ class MainWindow(QtWidgets.QMainWindow):
         path_obj = Path(path)
         if path_obj.suffix != ".siteproj":
             path_obj = path_obj.with_suffix(".siteproj")
-        self.settings.set("last_save_dir", str(path_obj.parent))
         self.project_path = path_obj
         self.project.output_dir = str(path_obj.parent)
         self.save_project()
@@ -8016,12 +6738,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def export_project(self) -> None:
         self._flush_editors_to_model()
         self._maybe_render_cover(force=True)
-        default_dir = self.settings.get("last_export_dir", str(projects_root()))
-        start_dir = self.project.output_dir or default_dir
         out_dir = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Export site",
-            start_dir,
+            self.project.output_dir or str(Path.home()),
         )
         if not out_dir:
             return
@@ -8030,7 +6750,6 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Export failed", str(exc))
             return
-        self.settings.set("last_export_dir", out_dir)
         self.status_bar.showMessage(f"Exported to {out_dir}", 4000)
         QtWidgets.QMessageBox.information(self, "Export complete", f"Your site was exported to:\n{out_dir}")
 
@@ -8357,6 +7076,8 @@ def main() -> int:
     controller.show_start()
     return app.exec()
 
-
 if __name__ == "__main__":
-    raise SystemExit(main())
+
+  raise SystemExit(main())
+
+    
