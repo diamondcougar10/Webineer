@@ -20,6 +20,7 @@ from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QCloseEvent, QDesktopServices
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from jinja2 import DictLoader, Environment, select_autoescape
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 APP_TITLE = "Webineer Site Builder"
 APP_ICON_PATH = "icon.ico"
