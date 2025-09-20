@@ -209,234 +209,8 @@ class Project:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class TemplateDefinition:
-    key: str
-    title: str
-    description: str
-    default_pages: List[Tuple[str, str]]
 
 
-TEMPLATES: Dict[str, TemplateDefinition] = {
-    "starter": TemplateDefinition(
-        key="starter",
-        title="Starter",
-        description="A clean one-page layout with a hero, features, and footer.",
-        default_pages=[
-            (
-                "index.html",
-                """
-<section class=\"hero stack center\">
-  <h1>Welcome to {{site_name}}</h1>
-  <p class=\"lead\">A friendly place to share what you do.</p>
-  <div class=\"stack-inline\">
-    <a class=\"btn btn-primary\" href=\"#\">Get Started</a>
-    <a class=\"btn btn-ghost\" href=\"#\">Learn more</a>
-  </div>
-</section>
-<section class=\"section\">
-  <h2 class=\"eyebrow\">Highlights</h2>
-  <div class=\"grid split-3\">
-    <article class=\"card\">
-      <h3>Fast setup</h3>
-      <p>Point, click, publish. Everything stays simple.</p>
-    </article>
-    <article class=\"card\">
-      <h3>Polished</h3>
-      <p>Beautiful defaults with room to customize.</p>
-    </article>
-    <article class=\"card\">
-      <h3>Ready to grow</h3>
-      <p>Add pages and content blocks as you need them.</p>
-    </article>
-  </div>
-</section>
-<section class=\"section\">
-  <h2>Next steps</h2>
-  <div class=\"callout\">
-    <h3>Let's build something great.</h3>
-    <p>Use the Insert menu to drop in sections, galleries, contact forms, and more.</p>
-  </div>
-</section>
-                """,
-            )
-        ],
-    ),
-    "portfolio": TemplateDefinition(
-        key="portfolio",
-        title="Portfolio",
-        description="Showcase projects with case studies, testimonials, and contact.",
-        default_pages=[
-            (
-                "index.html",
-                """
-<section class=\"hero hero-split\">
-  <div class=\"stack\">
-    <p class=\"eyebrow\">Showcase your work</p>
-    <h1>Hi, I'm {{site_name}}</h1>
-    <p class=\"lead\">I help teams design thoughtful, accessible web experiences.</p>
-    <div class=\"stack-inline\">
-      <a class=\"btn btn-primary\" href=\"projects.html\">See projects</a>
-      <a class=\"btn btn-soft\" href=\"contact.html\">Work together</a>
-    </div>
-  </div>
-  <figure class=\"card media\">
-    <img src=\"assets/images/placeholder-portrait.png\" alt=\"Portrait\">
-  </figure>
-</section>
-<section class=\"section\">
-  <h2>Featured work</h2>
-  <div class=\"grid split-2\">
-    <article class=\"card\">
-      <h3>Case Study One</h3>
-      <p>Results-driven redesign for a SaaS platform.</p>
-      <a class=\"btn btn-link\" href=\"projects.html\">Read case study</a>
-    </article>
-    <article class=\"card\">
-      <h3>Case Study Two</h3>
-      <p>Growth-focused marketing site for a startup.</p>
-      <a class=\"btn btn-link\" href=\"projects.html\">Read case study</a>
-    </article>
-  </div>
-</section>
-<section class=\"section section-alt\">
-  <h2>What clients say</h2>
-  <div class=\"testimonials\">
-    <figure>
-      <blockquote>
-        <p>“They went above and beyond. We shipped in record time.”</p>
-      </blockquote>
-      <figcaption>Alex Morgan · Product Lead</figcaption>
-    </figure>
-  </div>
-</section>
-                """,
-            ),
-            (
-                "projects.html",
-                """
-<section class=\"section\">
-  <h1>Projects</h1>
-  <div class=\"grid split-2\">
-    <article class=\"card\">
-      <h2>Project Alpha</h2>
-      <p>Short description of a flagship project outcome.</p>
-      <ul class=\"list-check\">
-        <li>Insightful research</li>
-        <li>Accessible design system</li>
-        <li>Launch support</li>
-      </ul>
-    </article>
-    <article class=\"card\">
-      <h2>Project Beta</h2>
-      <p>A compact case study for a secondary engagement.</p>
-    </article>
-  </div>
-</section>
-                """,
-            ),
-            (
-                "contact.html",
-                """
-<section class=\"section\">
-  <h1>Let's connect</h1>
-  <p>Ready to collaborate? Tell me about the project and timing.</p>
-  <form class=\"stack form\">
-    <label>Name<input type=\"text\" placeholder=\"Your name\" required></label>
-    <label>Email<input type=\"email\" placeholder=\"you@example.com\" required></label>
-    <label>How can I help?<textarea rows=\"4\"></textarea></label>
-    <button class=\"btn btn-primary\" type=\"submit\">Send message</button>
-  </form>
-</section>
-                """,
-            ),
-        ],
-    ),
-    "resource": TemplateDefinition(
-        key="resource",
-        title="Resource",
-        description="Organize documentation, tutorials, or knowledge bases.",
-        default_pages=[
-            (
-                "index.html",
-                """
-<section class=\"hero\">
-  <h1>{{site_name}} Resource Hub</h1>
-  <p class=\"lead\">Find guides, FAQs, and quick tips to get the most out of your product.</p>
-  <form class=\"stack-inline\" role=\"search\">
-    <input class=\"input\" type=\"search\" placeholder=\"Search articles\">
-    <button class=\"btn btn-primary\" type=\"submit\">Search</button>
-  </form>
-</section>
-<section class=\"section\">
-  <h2>Popular guides</h2>
-  <div class=\"grid split-3\">
-    <article class=\"card\">
-      <h3>Getting started</h3>
-      <p>Set up and launch in under ten minutes.</p>
-      <a class=\"btn btn-link\" href=\"docs.html\">Read guide</a>
-    </article>
-    <article class=\"card\">
-      <h3>Team workflows</h3>
-      <p>Collaborate smoothly across your organization.</p>
-      <a class=\"btn btn-link\" href=\"docs.html\">Read guide</a>
-    </article>
-    <article class=\"card\">
-      <h3>Troubleshooting</h3>
-      <p>Quick answers for common questions.</p>
-      <a class=\"btn btn-link\" href=\"docs.html\">Read guide</a>
-    </article>
-  </div>
-</section>
-<section class=\"section section-alt\">
-  <h2>Recently updated</h2>
-  <div class=\"timeline\">
-    <div class=\"timeline-item\">
-      <span class=\"badge\">Apr</span>
-      <div>
-        <h3>Version 2.1 release notes</h3>
-        <p>Improved navigation, accessibility, and performance tweaks.</p>
-      </div>
-    </div>
-    <div class=\"timeline-item\">
-      <span class=\"badge\">Mar</span>
-      <div>
-        <h3>New onboarding lessons</h3>
-        <p>Three quick videos to help new teammates succeed.</p>
-      </div>
-    </div>
-  </div>
-</section>
-                """,
-            ),
-            (
-                "docs.html",
-                """
-<section class=\"section\">
-  <h1>Documentation</h1>
-  <div class=\"tabs\">
-    <input checked id=\"tab-intro\" name=\"docs-tabs\" type=\"radio\">
-    <label for=\"tab-intro\">Introduction</label>
-    <div class=\"tab-content\">
-      <p>Explain the basics of your product or service here.</p>
-    </div>
-    <input id=\"tab-guides\" name=\"docs-tabs\" type=\"radio\">
-    <label for=\"tab-guides\">Guides</label>
-    <div class=\"tab-content\">
-      <p>Break down tasks into clear, step-by-step instructions.</p>
-    </div>
-    <input id=\"tab-faq\" name=\"docs-tabs\" type=\"radio\">
-    <label for=\"tab-faq\">FAQ</label>
-    <div class=\"tab-content\">
-      <p>Answer common questions with short, conversational copy.</p>
-    </div>
-  </div>
-</section>
-                """,
-            ),
-        ],
-    ),
-}
 
 
 THEME_PRESETS: Dict[str, Dict[str, str]] = {
@@ -462,9 +236,10 @@ FONT_STACKS = [
 # ---------------------------------------------------------------------------
 
 
-CSS_HELPERS_SENTINEL = "/* === Webineer helper styles v2 === */"
-CSS_HELPERS_BLOCK = f"""{CSS_HELPERS_SENTINEL}
-:root {{
+CSS_HELPERS_SENTINEL = "/* === WEBINEER CSS HELPERS (DO NOT DUPLICATE) === */"
+TEMPLATE_EXTRA_SENTINEL = "/* === WEBINEER TEMPLATE EXTRA CSS === */"
+
+CSS_HELPERS_BLOCK = """:root {
   --space-0: 0;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -479,269 +254,241 @@ CSS_HELPERS_BLOCK = f"""{CSS_HELPERS_SENTINEL}
   --shadow-sm: 0 2px 12px rgba(15, 23, 42, 0.08);
   --shadow-lg: 0 20px 60px rgba(15, 23, 42, 0.12);
   --max-width: 1100px;
-}}
-body {{
+}
+body {
   background: var(--color-surface, #f8fafc);
   color: var(--color-text, #0f172a);
-}}
-.container {{
+}
+.container {
   max-width: var(--max-width);
   margin: 0 auto;
   padding: var(--space-6) var(--space-4);
-}}
-.section {{
+}
+.section {
   padding: var(--space-7) 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-}}
-.section-alt {{
+}
+.section-alt {
   background: rgba(148, 163, 184, 0.1);
   padding: var(--space-7) 0;
-}}
-.stack {{
+}
+.stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}}
-.stack-inline {{
+}
+.stack-inline {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-3);
   align-items: center;
-}}
-.center {{
+}
+.center {
   text-align: center;
   align-items: center;
-}}
-.grid {{
+}
+.grid {
   display: grid;
   gap: var(--space-4);
-}}
-.split-2 {{
+}
+.split-2 {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}}
-.split-3 {{
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-}}
-.hero {{
-  padding: var(--space-7) var(--space-4);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, rgba(59,130,246,.12), rgba(59,130,246,.03));
-  box-shadow: var(--shadow-sm);
+}
+.split-3 {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.hero {
+  padding: var(--space-7) 0;
   display: grid;
   gap: var(--space-5);
-}}
-.hero-split {{
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  justify-items: start;
+}
+.hero-split {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   align-items: center;
-}}
-.lead {{
-  font-size: 1.125rem;
-  color: rgba(15, 23, 42, 0.75);
-}}
-.eyebrow {{
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  font-size: 0.75rem;
-  color: rgba(15, 23, 42, 0.6);
-}}
-.btn {{
+}
+.hero .lead {
+  font-size: 1.2rem;
+  max-width: 540px;
+}
+.hero .btn {
+  padding: 0.85rem 1.35rem;
+  font-weight: 600;
+}
+.btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 40px;
-  padding: 0.6rem 1.4rem;
+  padding: 0.75rem 1.25rem;
   border-radius: 999px;
+  border: none;
+  cursor: pointer;
   font-weight: 600;
-  transition: all .2s ease;
-  border: 1px solid transparent;
-}}
-.btn-primary {{
+  text-decoration: none;
+}
+.btn-primary {
   background: var(--color-primary, #2563eb);
-  color: #fff;
+  color: white;
   box-shadow: var(--shadow-sm);
-}}
-.btn-soft {{
+}
+.btn-outline {
+  border: 2px solid rgba(37, 99, 235, 0.35);
+  color: var(--color-primary, #2563eb);
+  background: transparent;
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--color-primary, #2563eb);
+}
+.btn-soft {
   background: rgba(37, 99, 235, 0.12);
   color: var(--color-primary, #2563eb);
-}}
-.btn-outline {{
-  border-color: rgba(15, 23, 42, 0.12);
-  color: var(--color-text, #0f172a);
-  background: transparent;
-}}
-.btn-ghost {{
-  background: transparent;
-  color: var(--color-text, #0f172a);
-}}
-.btn-pill {{
+}
+.btn-pill {
   border-radius: 999px;
-}}
-.btn-gradient {{
-  background: linear-gradient(135deg, var(--color-primary, #2563eb), #a855f7);
+}
+.btn-gradient {
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
   color: white;
   box-shadow: var(--shadow-lg);
-}}
-.btn-link {{
+}
+.hero figure {
+  margin: 0;
+}
+.card {
+  padding: var(--space-5);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  background: white;
+}
+.card.media {
   padding: 0;
-  border: none;
-  background: none;
-  color: var(--color-primary, #2563eb);
-}}
-.card {{
-  background: white;
-  border-radius: var(--radius-md);
-  padding: var(--space-5);
-  box-shadow: var(--shadow-sm);
-}}
-.card.media {{
-  padding: var(--space-3);
-  background: rgba(255,255,255,.72);
-  border: 1px solid rgba(148,163,184,.25);
-}}
-.callout {{
-  border-radius: var(--radius-md);
-  background: rgba(37, 99, 235, 0.08);
-  padding: var(--space-5);
-  border: 1px solid rgba(37, 99, 235, 0.25);
-}}
-.alert {{
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  border: 1px solid rgba(148,163,184,.4);
-  background: rgba(148,163,184,.12);
-}}
-.badge {{
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.12);
-  color: var(--color-primary, #2563eb);
-  font-weight: 600;
-  font-size: 0.75rem;
-}}
-.divider {{
-  height: 1px;
-  background: rgba(148, 163, 184, 0.3);
-  margin: var(--space-5) 0;
-}}
-.tabs {{
-  display: grid;
-  gap: 0.5rem;
-}}
-.tabs > input {{
-  display: none;
-}}
-.tabs > label {{
-  padding: 0.6rem 1rem;
-  border-radius: var(--radius-sm);
-  background: rgba(148,163,184,.14);
-  cursor: pointer;
-}}
-.tabs > input:checked + label {{
-  background: var(--color-primary, #2563eb);
-  color: white;
-}}
-.tabs > input:checked + label + .tab-content {{
+  overflow: hidden;
+}
+.card.media img {
+  width: 100%;
+  height: auto;
   display: block;
-}}
-.tab-content {{
-  display: none;
-  padding: 1rem;
-  background: white;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-}}
-.timeline {{
-  display: grid;
-  gap: var(--space-4);
-}}
-.timeline-item {{
-  display: grid;
-  gap: var(--space-2);
-  grid-template-columns: auto 1fr;
-  align-items: start;
-}}
-.list-check {{
+}
+.lead {
+  font-size: 1.125rem;
+  color: rgba(15, 23, 42, 0.85);
+}
+.eyebrow {
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(37, 99, 235, 0.9);
+}
+.list-check {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
-  gap: var(--space-2);
-}}
-.list-check li::before {{
+  gap: 0.35rem;
+}
+.list-check li::before {
   content: "✔";
-  color: var(--color-primary, #2563eb);
   margin-right: .5rem;
-}}
-.inline-tags {{
+}
+.inline-tags {
   display: inline-flex;
   gap: 0.5rem;
   flex-wrap: wrap;
-}}
-.inline-tags span {{
+}
+.inline-tags span {
   padding: 0.25rem 0.75rem;
   border-radius: 999px;
   background: rgba(37, 99, 235, 0.14);
-}}
-.gallery {{
+}
+.gallery {
   display: grid;
   gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-}}
-.gallery figure {{
+}
+.gallery figure {
   background: white;
   border-radius: var(--radius-sm);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
-}}
-.testimonials {{
+}
+.testimonials {
   display: grid;
   gap: var(--space-4);
-}}
-.testimonials blockquote {{
+}
+.testimonials blockquote {
   font-size: 1.1rem;
   line-height: 1.6;
   margin: 0;
-}}
-.steps {{
+}
+.steps {
   display: grid;
   gap: var(--space-4);
-}}
-.steps article {{
+}
+.steps article {
   display: grid;
   gap: var(--space-2);
   padding: var(--space-4);
   border-radius: var(--radius-sm);
   background: rgba(37, 99, 235, 0.06);
-}}
-.faq {{
+}
+.faq {
   border-radius: var(--radius-sm);
   border: 1px solid rgba(148,163,184,0.35);
   background: white;
   padding: var(--space-3);
-}}
-.faq summary {{
+}
+.faq summary {
   cursor: pointer;
   font-weight: 600;
-}}
-.max-w-sm {{ max-width: 420px; margin: 0 auto; }}
-.max-w-md {{ max-width: 640px; margin: 0 auto; }}
-.max-w-lg {{ max-width: 960px; margin: 0 auto; }}
-.main-container {{ max-width: var(--max-width); margin: 0 auto; padding: 0 var(--space-4); }}
-.form input, .form textarea {{
+}
+.max-w-sm { max-width: 420px; margin: 0 auto; }
+.max-w-md { max-width: 640px; margin: 0 auto; }
+.max-w-lg { max-width: 960px; margin: 0 auto; }
+.main-container { max-width: var(--max-width); margin: 0 auto; padding: 0 var(--space-4); }
+.form input, .form textarea {
   padding: 0.65rem 0.85rem;
   border-radius: var(--radius-sm);
   border: 1px solid rgba(148,163,184,0.5);
-}}
-.alert-info {{ background: rgba(37, 99, 235, 0.12); border-color: rgba(37, 99, 235, 0.3); }}
-.alert-success {{ background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.32); }}
-.alert-warning {{ background: rgba(234, 179, 8, 0.2); border-color: rgba(234, 179, 8, 0.42); }}
-.alert-danger {{ background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.36); }}
+}
+.alert-info { background: rgba(37, 99, 235, 0.12); border-color: rgba(37, 99, 235, 0.3); }
+.alert-success { background: rgba(16, 185, 129, 0.15); border-color: rgba(16, 185, 129, 0.32); }
+.alert-warning { background: rgba(234, 179, 8, 0.2); border-color: rgba(234, 179, 8, 0.42); }
+.alert-danger { background: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.36); }
 """
 
+CSS_SENTINELS = (CSS_HELPERS_SENTINEL, TEMPLATE_EXTRA_SENTINEL)
+
+
+def ensure_block(css: str, sentinel: str, block: str) -> str:
+    """Ensure a sentinel block exists in the CSS, appending if necessary."""
+
+    if sentinel in css:
+        return css
+    base = css.rstrip()
+    addition = f"{sentinel}\n{block.strip()}\n"
+    if base:
+        return base + "\n\n" + addition
+    return addition
+
+
+def extract_css_block(css: str, sentinel: str) -> str | None:
+    """Return the CSS content for a sentinel without the sentinel line."""
+
+    if sentinel not in css:
+        return None
+    tail = css.split(sentinel, 1)[1].lstrip('\n')
+    end = len(tail)
+    for other in CSS_SENTINELS:
+        if other == sentinel:
+            continue
+        pos = tail.find(other)
+        if pos != -1 and pos < end:
+            end = pos
+    block = tail[:end].strip()
+    return block or None
 MAIN_JS_SNIPPET = """// Lightweight helpers for Webineer components
 (function(){
   const navToggle = document.querySelector('[data-toggle="mobile-nav"]');
@@ -1038,6 +785,464 @@ COMPONENT_SNIPPETS: Dict[str, Snippet] = {
 """),
 }
 
+
+# ---------------------------------------------------------------------------
+# Section helper utilities
+# ---------------------------------------------------------------------------
+
+
+def html_section_hero() -> str:
+    return SECTIONS_SNIPPETS["hero"].html.strip()
+
+
+def html_section_two_column() -> str:
+    return """<section class=\"section\">\n  <div class=\"grid split-2\">\n    <article class=\"stack\">\n      <p class=\"eyebrow\">Why choose us</p>\n      <h2>Share a concise benefit</h2>\n      <p>Use this space to explain how you help visitors solve their problem or reach a goal.</p>\n      <div class=\"stack-inline\">\n        <a class=\"btn btn-primary\" href=\"#\">Primary action</a>\n        <a class=\"btn btn-ghost\" href=\"#\">Learn more</a>\n      </div>\n    </article>\n    <article class=\"card media\">\n      <img src=\"assets/images/placeholder-wide.png\" alt=\"Screenshot preview\">\n    </article>\n  </div>\n</section>"""
+
+
+def html_section_features() -> str:
+    return """<section class=\"section\">\n  <h2>Highlights</h2>\n  <div class=\"grid split-3\">\n    <article class=\"card\">\n      <h3>Fast onboarding</h3>\n      <p>Walk newcomers through the essentials in minutes.</p>\n    </article>\n    <article class=\"card\">\n      <h3>Thoughtful design</h3>\n      <p>Clean layouts keep attention on your message.</p>\n    </article>\n    <article class=\"card\">\n      <h3>Built to grow</h3>\n      <p>Swap or add sections as your story evolves.</p>\n    </article>\n  </div>\n</section>"""
+
+
+def html_section_cta() -> str:
+    return """<section class=\"section center\">\n  <div class=\"card stack center\">\n    <h2>Ready to get started?</h2>\n    <p class=\"lead\">Invite visitors to take the next step with a clear promise.</p>\n    <div class=\"stack-inline\">\n      <a class=\"btn btn-primary\" href=\"#\">Start now</a>\n      <a class=\"btn btn-ghost\" href=\"#\">Talk to us</a>\n    </div>\n  </div>\n</section>"""
+
+
+def html_section_faq() -> str:
+    return """<section class=\"section max-w-lg\">\n  <h2>Frequently asked questions</h2>\n  <details class=\"faq\">\n    <summary>What should visitors know first?</summary>\n    <p>Answer with a friendly sentence or two. Keep it simple and actionable.</p>\n  </details>\n  <details class=\"faq\">\n    <summary>How long does setup take?</summary>\n    <p>Most teams publish in under a day—drag, drop, and refine.</p>\n  </details>\n  <details class=\"faq\">\n    <summary>Can I update content later?</summary>\n    <p>Absolutely. Add new sections and tweak copy whenever inspiration strikes.</p>\n  </details>\n</section>"""
+
+
+def html_section_pricing() -> str:
+    return SECTIONS_SNIPPETS["features"].html.strip()
+
+
+def html_section_testimonials() -> str:
+    return SECTIONS_SNIPPETS["testimonials"].html.strip()
+
+
+def html_section_gallery() -> str:
+    return SECTIONS_SNIPPETS["gallery"].html.strip()
+
+
+def html_section_contact_form() -> str:
+    return SECTIONS_SNIPPETS["contact"].html.strip()
+
+
+def html_section_about_header() -> str:
+    return """<section class=\"section max-w-lg\">\n  <p class=\"eyebrow\">About</p>\n  <h1>Meet the team behind your next big win</h1>\n  <p class=\"lead\">Share your mission, values, and the milestones that make your story memorable.</p>\n</section>"""
+# ---------------------------------------------------------------------------
+# Template specifications
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TemplateSpec:
+    name: str
+    description: str
+    pages: List[Tuple[str, str, str]]
+    palette: Optional[Dict[str, str]] = None
+    fonts: Optional[Dict[str, str]] = None
+    extra_css: str = ""
+    include_helpers: bool = True
+
+
+def _starter_spec() -> TemplateSpec:
+    hero = html_section_hero()
+    hero = hero.replace("Headline that inspires confidence", "Welcome to {{SITE_NAME}}")
+    hero = hero.replace(
+        "Explain what you offer and the value in a friendly tone.",
+        "Share a friendly, one-sentence promise that sets the tone.",
+    )
+    hero = hero.replace("Primary call to action", "Get started")
+    hero = hero.replace("Secondary link", "Preview features")
+    two_column = html_section_two_column()
+    features = html_section_features()
+    cta = html_section_cta().replace("Ready to get started?", "Launch in minutes")
+    cta = cta.replace(
+        "Invite visitors to take the next step with a clear promise.",
+        "Publish quickly, iterate often.",
+    )
+    html = "\n\n".join([hero, two_column, features, cta])
+    return TemplateSpec(
+        name="Starter landing",
+        description="Hero-first landing page with highlights and a call to action.",
+        pages=[("index.html", "Home", html)],
+        palette=dict(DEFAULT_PALETTE),
+        fonts=dict(DEFAULT_FONTS),
+    )
+
+
+def _portfolio_spec() -> TemplateSpec:
+    hero = SECTIONS_SNIPPETS["hero-split"].html.strip()
+    hero = hero.replace("New announcement", "Case studies")
+    hero = hero.replace("Highlight the benefit", "I'm {{SITE_NAME}}")
+    hero = hero.replace(
+        "Share how you solve the problem, not the feature list.",
+        "I help teams design thoughtful, accessible web experiences.",
+    )
+    hero = hero.replace("Get started", "See projects")
+    hero = hero.replace("Talk to us", "Book a call")
+    projects = """<section class="section">
+  <h2>Featured work</h2>
+  <div class="grid split-2">
+    <article class="card">
+      <h3>Case Study One</h3>
+      <p>Results-driven redesign for a SaaS platform.</p>
+      <a class="btn btn-link" href="projects.html">View case study</a>
+    </article>
+    <article class="card">
+      <h3>Case Study Two</h3>
+      <p>Growth-focused marketing site for a startup.</p>
+      <a class="btn btn-link" href="projects.html">View case study</a>
+    </article>
+  </div>
+</section>"""
+    testimonials = html_section_testimonials()
+    cta = html_section_cta().replace("Ready to get started?", "Let’s collaborate")
+    cta = cta.replace(
+        "Invite visitors to take the next step with a clear promise.",
+        "Share a project brief and we'll schedule a kickoff call.",
+    )
+    index_html = "\n\n".join([hero, projects, testimonials, cta])
+    projects_page = """<section class="section">
+  <h1>Projects</h1>
+  <div class="grid split-3">
+    <article class="card">
+      <h2>Product Launch</h2>
+      <p>A sprint to craft a cohesive visual identity.</p>
+      <ul class="list-check">
+        <li>Brand discovery</li>
+        <li>Design system</li>
+        <li>Launch support</li>
+      </ul>
+    </article>
+    <article class="card">
+      <h2>Research Library</h2>
+      <p>Turning interviews into a searchable knowledge base.</p>
+    </article>
+    <article class="card">
+      <h2>Marketing Refresh</h2>
+      <p>Story-driven pages that convert curious visitors.</p>
+    </article>
+  </div>
+</section>"""
+    contact_page = "\n\n".join([html_section_contact_form(), html_section_faq()])
+    palette = {"primary": "#15803d", "surface": "#f0fdf4", "text": "#052e16"}
+    fonts = {"heading": "'Poppins', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    return TemplateSpec(
+        name="Portfolio",
+        description="Showcase projects with testimonials and a contact path.",
+        pages=[
+            ("index.html", "Home", index_html),
+            ("projects.html", "Projects", projects_page),
+            ("contact.html", "Contact", contact_page),
+        ],
+        palette=palette,
+        fonts=fonts,
+    )
+
+
+def _resource_spec() -> TemplateSpec:
+    hero = html_section_hero()
+    hero = hero.replace("Headline that inspires confidence", "{{SITE_NAME}} Resource Hub")
+    hero = hero.replace(
+        "Explain what you offer and the value in a friendly tone.",
+        "Find guides, tutorials, and quick wins for your team.",
+    )
+    hero = hero.replace("Primary call to action", "Browse guides")
+    hero = hero.replace("Secondary link", "Contact support")
+    cards = """<section class="section">
+  <h2>Popular guides</h2>
+  <div class="grid split-3">
+    <article class="card">
+      <h3>Getting started</h3>
+      <p>Set up and launch in under ten minutes.</p>
+      <a class="btn btn-link" href="guide.html">Read guide</a>
+    </article>
+    <article class="card">
+      <h3>Team workflows</h3>
+      <p>Collaborate smoothly across your organization.</p>
+      <a class="btn btn-link" href="guide.html">Read guide</a>
+    </article>
+    <article class="card">
+      <h3>Troubleshooting</h3>
+      <p>Quick answers for common questions.</p>
+      <a class="btn btn-link" href="guide.html">Read guide</a>
+    </article>
+  </div>
+</section>"""
+    updates = """<section class="section section-alt">
+  <h2>Recently updated</h2>
+  <div class="timeline">
+    <div class="timeline-item">
+      <span class="badge">Apr</span>
+      <div>
+        <h3>Version 2.1 release notes</h3>
+        <p>Improved navigation, accessibility, and performance tweaks.</p>
+      </div>
+    </div>
+    <div class="timeline-item">
+      <span class="badge">Mar</span>
+      <div>
+        <h3>New onboarding lessons</h3>
+        <p>Three quick videos to help new teammates succeed.</p>
+      </div>
+    </div>
+  </div>
+</section>"""
+    faq = html_section_faq()
+    index_html = "\n\n".join([hero, cards, updates, faq])
+    guide_html = """<section class="section">
+  <h1>Documentation</h1>
+  <div class="tabs">
+    <input checked id="tab-intro" name="docs-tabs" type="radio">
+    <label for="tab-intro">Introduction</label>
+    <div class="tab-content">
+      <p>Explain the basics, link to quick wins, and define success.</p>
+    </div>
+    <input id="tab-guides" name="docs-tabs" type="radio">
+    <label for="tab-guides">Guides</label>
+    <div class="tab-content">
+      <p>Break down tasks into clear, step-by-step instructions.</p>
+    </div>
+    <input id="tab-faq" name="docs-tabs" type="radio">
+    <label for="tab-faq">FAQ</label>
+    <div class="tab-content">
+      <p>Collect helpful answers to unblock your team quickly.</p>
+    </div>
+  </div>
+</section>"""
+    palette = {"primary": "#6366f1", "surface": "#111827", "text": "#f9fafb"}
+    fonts = {"heading": "'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"}
+    return TemplateSpec(
+        name="Resource hub",
+        description="Organize documentation, tutorials, and helpful FAQs.",
+        pages=[
+            ("index.html", "Home", index_html),
+            ("guide.html", "Guide", guide_html),
+        ],
+        palette=palette,
+        fonts=fonts,
+        extra_css=""".timeline {
+  display: grid;
+  gap: var(--space-4);
+  border-left: 3px solid rgba(99, 102, 241, 0.35);
+  padding-left: var(--space-4);
+}
+.timeline-item {
+  display: grid;
+  gap: var(--space-2);
+  align-items: start;
+}
+.timeline-item .badge {
+  background: rgba(99, 102, 241, 0.15);
+  color: rgba(199, 210, 254, 0.95);
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-weight: 600;
+}
+.tabs {
+  display: grid;
+  gap: var(--space-3);
+  background: rgba(15, 23, 42, 0.35);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+}
+.tabs > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.tabs > label {
+  font-weight: 600;
+  cursor: pointer;
+  color: rgba(224, 231, 255, 0.86);
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid transparent;
+}
+.tabs > input:checked + label {
+  color: white;
+  border-color: rgba(99, 102, 241, 0.85);
+}
+.tabs .tab-content {
+  display: none;
+  line-height: 1.65;
+  color: rgba(226, 232, 240, 0.92);
+}
+.tabs > input:checked + label + .tab-content {
+  display: block;
+}
+""",
+    )
+
+
+
+
+def _pricing_hero() -> str:
+    hero = html_section_hero()
+    hero = hero.replace("Headline that inspires confidence", "Pricing that scales with you")
+    hero = hero.replace("Explain what you offer and the value in a friendly tone.", "Pick the plan that matches your stage.")
+    hero = hero.replace("Primary call to action", "Choose a plan")
+    hero = hero.replace("Secondary link", "Contact sales")
+    return hero
+
+
+def _contact_intro() -> str:
+    hero = html_section_hero()
+    hero = hero.replace("Headline that inspires confidence", "We’d love to hear from you")
+    hero = hero.replace("Explain what you offer and the value in a friendly tone.", "Reach out with project ideas, support questions, or quick hellos.")
+    hero = hero.replace("Primary call to action", "Send a message")
+    hero = hero.replace("Secondary link", "Schedule a call")
+    return hero
+
+
+def _docs_outline() -> str:
+    return """<section class="section">
+  <h2>Guide overview</h2>
+  <ol class="list-check">
+    <li>Welcome — set expectations for new readers.</li>
+    <li>Setup — describe the steps required before they begin.</li>
+    <li>Best practices — share tips to stay productive.</li>
+  </ol>
+</section>"""
+
+
+def page_basic() -> str:
+    return """<section class="section">
+  <h2>New page</h2>
+  <p>Start with a short introduction, then break content into sections.</p>
+</section>"""
+
+
+def page_pricing() -> str:
+    sections = [_pricing_hero(), html_section_pricing(), html_section_faq()]
+    return "\n\n".join(sections)
+
+
+def page_about() -> str:
+    sections = [html_section_about_header(), html_section_two_column(), html_section_testimonials()]
+    return "\n\n".join(sections)
+
+
+def page_contact() -> str:
+    sections = [_contact_intro(), html_section_contact_form(), html_section_faq()]
+    return "\n\n".join(sections)
+
+
+def page_faq() -> str:
+    return html_section_faq()
+
+
+def page_blog_index() -> str:
+    return """<section class="section">
+  <h2>Latest stories</h2>
+  <div class="grid split-2">
+    <article class="card">
+      <span class="badge">Feature</span>
+      <h3>Announce something exciting</h3>
+      <p>Summarize the benefit and link to the full post.</p>
+      <a class="btn btn-link" href="#">Read more</a>
+    </article>
+    <article class="card">
+      <span class="badge">Update</span>
+      <h3>Share a quick win</h3>
+      <p>Keep readers in the loop with short highlights.</p>
+      <a class="btn btn-link" href="#">Read more</a>
+    </article>
+  </div>
+</section>"""
+
+
+def page_blog_post() -> str:
+    return """<article class="section container">
+  <header class="stack">
+    <p class="muted">Published 2025-01-01 · 5 min read</p>
+    <h1>Post title</h1>
+    <p class="lead">Set up the narrative and explain why it matters.</p>
+  </header>
+  <p>Use short paragraphs, helpful subheadings, and add visuals to keep readers engaged.</p>
+  <p>Wrap up with a summary or clear next step.</p>
+</article>"""
+
+
+def page_portfolio() -> str:
+    sections = [html_section_gallery(), html_section_testimonials(), html_section_cta()]
+    return "\n\n".join(sections)
+
+
+def page_docs() -> str:
+    return "\n\n".join([_contact_intro(), _docs_outline(), html_section_faq()])
+
+
+PAGE_TYPES: Dict[str, Callable[[], str]] = {
+    "Basic Page": page_basic,
+    "Pricing Page": page_pricing,
+    "About Page": page_about,
+    "Contact Page": page_contact,
+    "FAQ Page": page_faq,
+    "Blog Index": page_blog_index,
+    "Blog Post": page_blog_post,
+    "Portfolio Projects": page_portfolio,
+    "Docs Guide": page_docs,
+}
+
+
+PAGE_TYPE_SECTIONS: Dict[str, List[Tuple[str, Callable[[], str]]]] = {
+    "Pricing Page": [
+        ("Hero", _pricing_hero),
+        ("Pricing grid", html_section_pricing),
+        ("FAQ", html_section_faq),
+    ],
+    "About Page": [
+        ("About header", html_section_about_header),
+        ("Two column", html_section_two_column),
+        ("Testimonials", html_section_testimonials),
+    ],
+    "Contact Page": [
+        ("Intro", _contact_intro),
+        ("Contact form", html_section_contact_form),
+        ("FAQ", html_section_faq),
+    ],
+    "FAQ Page": [("FAQ", html_section_faq)],
+    "Portfolio Projects": [
+        ("Gallery", html_section_gallery),
+        ("Testimonials", html_section_testimonials),
+        ("Call to action", html_section_cta),
+    ],
+    "Docs Guide": [
+        ("Intro", _contact_intro),
+        ("Outline", _docs_outline),
+        ("FAQ", html_section_faq),
+    ],
+}
+
+PROJECT_TEMPLATES: Dict[str, TemplateSpec] = {
+    "starter": _starter_spec(),
+    "portfolio": _portfolio_spec(),
+    "resource": _resource_spec(),
+}
+
+
+@dataclass
+class TemplateDefinition:
+    key: str
+    title: str
+    description: str
+    default_pages: List[Tuple[str, str]]
+
+
+TEMPLATES: Dict[str, TemplateDefinition] = {
+    key: TemplateDefinition(
+        key=key,
+        title=spec.name,
+        description=spec.description,
+        default_pages=[
+            (filename, html.replace("{{SITE_NAME}}", "{{site_name}}"))
+            for filename, _, html in spec.pages
+        ],
+    )
+    for key, spec in PROJECT_TEMPLATES.items()
+}
+
+
 # ---------------------------------------------------------------------------
 # Rendering utilities
 # ---------------------------------------------------------------------------
@@ -1118,6 +1323,12 @@ a {{
 """
 
 
+def generate_base_css(palette: Dict[str, str], fonts: Dict[str, str]) -> str:
+    """Compatibility wrapper to build the base CSS from palette and fonts."""
+
+    return build_base_css(palette, fonts)
+
+
 def _jinja_env() -> Environment:
     return Environment(
         loader=DictLoader({"base.html.j2": BASE_TEMPLATE}),
@@ -1179,9 +1390,10 @@ def render_project(project: Project, output_dir: Path) -> None:
     else:
         if js_dir.exists():
             shutil.rmtree(js_dir)
-    css = project.css
-    if CSS_HELPERS_SENTINEL not in css:
-        css = css.rstrip() + "\n\n" + CSS_HELPERS_BLOCK
+    css = ensure_block(project.css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+    extra_block = extract_css_block(project.css, TEMPLATE_EXTRA_SENTINEL)
+    if extra_block:
+        css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, extra_block)
     (css_dir / "style.css").write_text(css, encoding="utf-8")
     for asset in project.images:
         data = base64.b64decode(asset.data_base64.encode("ascii"))
@@ -1384,6 +1596,133 @@ class LargeToolButton(QtWidgets.QToolButton):
         font = self.font()
         font.setPointSize(12)
         self.setFont(font)
+
+
+class TemplateSelectDialog(QtWidgets.QDialog):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None, templates: Dict[str, TemplateSpec] | None = None) -> None:
+        super().__init__(parent)
+        ensure_app_icon(self)
+        self.setWindowTitle("Start a new project")
+        self._templates = templates or {}
+
+        layout = QtWidgets.QVBoxLayout(self)
+        self.list = QtWidgets.QListWidget(self)
+        for key, spec in self._templates.items():
+            item = QtWidgets.QListWidgetItem(f"{spec.name} — {spec.description}")
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, key)
+            self.list.addItem(item)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+        layout.addWidget(self.list, 1)
+
+        layout.addWidget(QtWidgets.QLabel("Site name:"))
+        self.name_edit = QtWidgets.QLineEdit("My Site", self)
+        layout.addWidget(self.name_edit)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def result(self) -> Tuple[Optional[str], Optional[str]]:
+        item = self.list.currentItem()
+        key = item.data(QtCore.Qt.ItemDataRole.UserRole) if item is not None else None
+        name = self.name_edit.text().strip() or None
+        return key, name
+
+
+class PageTemplateDialog(QtWidgets.QDialog):
+    def __init__(
+        self,
+        parent: Optional[QtWidgets.QWidget] = None,
+        page_types: Dict[str, Callable[[], str]] | None = None,
+    ) -> None:
+        super().__init__(parent)
+        ensure_app_icon(self)
+        self.setWindowTitle("Add Page")
+        self._types = page_types or {}
+        self._section_entries: List[Tuple[QtWidgets.QCheckBox, Callable[[], str]]] = []
+        self._auto_title = ""
+        self._title_custom = False
+        self._suppress_title_signal = False
+
+        form = QtWidgets.QFormLayout(self)
+        self.title_edit = QtWidgets.QLineEdit(self)
+        self.title_edit.textEdited.connect(self._on_title_edited)
+        self.type_combo = QtWidgets.QComboBox(self)
+        self.type_combo.addItems(list(self._types.keys()))
+        form.addRow("Title", self.title_edit)
+        form.addRow("Page type", self.type_combo)
+
+        self.sections_group = QtWidgets.QGroupBox("Sections", self)
+        self.sections_layout = QtWidgets.QVBoxLayout(self.sections_group)
+        form.addRow(self.sections_group)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
+            parent=self,
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+        self.type_combo.currentTextChanged.connect(self._on_type_changed)
+        initial_type = self.type_combo.currentText()
+        self._on_type_changed(initial_type)
+
+    def _on_type_changed(self, page_type: str) -> None:
+        base_title = page_type.replace("Page", "").strip() or "Page"
+        current_text = self.title_edit.text().strip()
+        should_update = (not self._title_custom) or (not current_text) or (current_text == self._auto_title)
+        self._auto_title = base_title
+        if should_update:
+            self._suppress_title_signal = True
+            self.title_edit.setText(base_title)
+            self._suppress_title_signal = False
+            self._title_custom = False
+        for checkbox, _ in self._section_entries:
+            checkbox.deleteLater()
+        self._section_entries = []
+        while self.sections_layout.count():
+            item = self.sections_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        entries = PAGE_TYPE_SECTIONS.get(page_type, [])
+        self.sections_group.setVisible(bool(entries))
+        for label, builder in entries:
+            checkbox = QtWidgets.QCheckBox(label, self.sections_group)
+            checkbox.setChecked(True)
+            self.sections_layout.addWidget(checkbox)
+            self._section_entries.append((checkbox, builder))
+
+    def _on_title_edited(self, _text: str) -> None:
+        if not self._suppress_title_signal:
+            self._title_custom = True
+
+    def _selected_sections(self) -> List[str]:
+        html_parts: List[str] = []
+        for checkbox, builder in self._section_entries:
+            if checkbox.isChecked():
+                html_parts.append(builder())
+        return html_parts
+
+    def build_html(self) -> str:
+        selected = self._selected_sections()
+        if selected:
+            return "\n\n".join(selected)
+        builder = self._types.get(self.type_combo.currentText())
+        return builder() if builder else "<section><h2>New page</h2></section>"
+
+    def result(self) -> Tuple[str, str, str]:
+        title = self.title_edit.text().strip() or "Page"
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "page"
+        filename = "index.html" if slug == "index" else f"{slug}.html"
+        html = self.build_html()
+        return title, filename, html
 
 
 class TemplateCard(QtWidgets.QFrame):
@@ -1809,35 +2148,60 @@ def create_project_from_template(
     fonts: Dict[str, str],
     blurb: str = "",
 ) -> Project:
-    template = TEMPLATES.get(template_key, TEMPLATES["starter"])
+    spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
+    palette_final = dict(spec.palette or palette)
+    fonts_final = dict(spec.fonts or fonts)
+
     pages: List[Page] = []
-    page_map: Dict[str, str] = {"Home": "index.html"}
-    for filename, html in template.default_pages:
-        title = "Home" if filename == "index.html" else Path(filename).stem.capitalize()
-        page_map[title] = filename
-        if title in selected_pages or filename == "index.html":
-            content = html.replace("{{site_name}}", name)
-            if blurb and "lead" in content and title == "Home":
-                content = re.sub(r"<p class=\"lead\">.*?</p>", f"<p class=\"lead\">{blurb}</p>", content, count=1)
-            pages.append(Page(filename=filename, title=page_titles.get(title, title), html=content))
+    spec_titles = {title: filename for filename, title, _ in spec.pages}
+    existing_filenames: set[str] = set()
+
+    for filename, default_title, html in spec.pages:
+        title = page_titles.get(default_title, default_title)
+        content = html.replace("{{SITE_NAME}}", name)
+        if blurb and default_title.lower() == "home":
+            content = re.sub(
+                r"<p class=\"lead\">.*?</p>",
+                f"<p class=\"lead\">{blurb}</p>",
+                content,
+                count=1,
+            )
+        pages.append(Page(filename=filename, title=title, html=content))
+        existing_filenames.add(filename)
+
     for title in selected_pages:
-        if title not in page_map:
-            filename = f"{re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-') or 'page'}.html"
-            body = f"<section class=\"section\">\n  <h1>{title}</h1>\n  <p>Write something helpful here.</p>\n</section>"
-            pages.append(Page(filename=filename, title=page_titles.get(title, title), html=body))
-    base_css = build_base_css(palette, fonts)
-    css = base_css.rstrip() + "\n\n" + CSS_HELPERS_BLOCK
+        if title in spec_titles:
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "page"
+        filename = f"{slug}.html"
+        counter = 1
+        while filename in existing_filenames:
+            filename = f"{slug}-{counter}.html"
+            counter += 1
+        body = (
+            f"<section class=\"section\">\n  <h1>{page_titles.get(title, title)}</h1>\n"
+            "  <p>Write something helpful here.</p>\n</section>"
+        )
+        pages.append(Page(filename=filename, title=page_titles.get(title, title), html=body))
+        existing_filenames.add(filename)
+
+    css = generate_base_css(palette_final, fonts_final)
+    if spec.include_helpers:
+        css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+    if spec.extra_css.strip():
+        css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
+
     project = Project(
         name=name,
         pages=pages,
         css=css,
-        palette=palette,
-        fonts=fonts,
+        palette=palette_final,
+        fonts=fonts_final,
         template_key=template_key,
         theme_preset="",
         images=placeholder_images(),
     )
-    project.theme_preset = next((key for key, val in THEME_PRESETS.items() if val == palette), "Custom")
+    project.theme_preset = next((key for key, val in THEME_PRESETS.items() if val == palette_final), "Custom")
     return project
 
 
@@ -2604,7 +2968,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_rename_asset.clicked.connect(self._rename_asset)
         self.btn_remove_asset.clicked.connect(self._remove_asset)
         self.btn_insert_image.clicked.connect(self._insert_image_dialog)
-        self.act_new.triggered.connect(lambda: self.controller.show_start_from_main("Create New"))
+        self.act_new.triggered.connect(self.new_project_bootstrap)
         self.act_open.triggered.connect(self.open_project_dialog)
         self.act_save.triggered.connect(self.save_project)
         self.act_save_as.triggered.connect(self.save_project_as)
@@ -2635,21 +2999,59 @@ class MainWindow(QtWidgets.QMainWindow):
             self.pages_list.addItem(f"{page.title} ({page.filename})")
         self.pages_list.blockSignals(False)
 
-    def add_page(self) -> None:
-        title, ok = QtWidgets.QInputDialog.getText(self, "Add page", "Title")
-        if not ok or not title.strip():
+    def new_project_bootstrap(self) -> None:
+        dialog = TemplateSelectDialog(self, PROJECT_TEMPLATES)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        title = title.strip()
-        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "page"
-        filename = f"{slug}.html"
+        template_key, site_name = dialog.result()
+        if not template_key or not site_name:
+            return
+        spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
+        palette = dict(spec.palette or DEFAULT_PALETTE)
+        fonts = dict(spec.fonts or DEFAULT_FONTS)
+        css = generate_base_css(palette, fonts)
+        if spec.include_helpers:
+            css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+        if spec.extra_css.strip():
+            css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
+        pages = [
+            Page(filename=filename, title=title, html=html.replace("{{SITE_NAME}}", site_name))
+            for filename, title, html in spec.pages
+        ]
+        project = Project(
+            name=site_name,
+            pages=pages,
+            css=css,
+            palette=palette,
+            fonts=fonts,
+            template_key=template_key,
+            images=placeholder_images(),
+        )
+        project.theme_preset = next((key for key, val in THEME_PRESETS.items() if val == palette), "Custom")
+        self.project = project
+        self.project_path = None
+        self.setWindowTitle(f"{APP_TITLE} — {project.name}")
+        self._load_project_into_ui()
+        self.update_preview()
+
+    def add_page(self) -> None:
+        dialog = PageTemplateDialog(self, PAGE_TYPES)
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        title, filename, html = dialog.result()
         existing = {p.filename for p in self.project.pages}
-        counter = 1
-        while filename in existing:
-            filename = f"{slug}-{counter}.html"
-            counter += 1
-        self.project.pages.append(Page(filename=filename, title=title, html=f"<section class=\"section\">\n  <h1>{title}</h1>\n  <p>Start writing here.</p>\n</section>"))
+        if filename in existing:
+            base = filename[:-5] if filename.endswith(".html") else filename
+            counter = 1
+            new_filename = filename
+            while new_filename in existing:
+                new_filename = f"{base}-{counter}.html"
+                counter += 1
+            filename = new_filename
+        self.project.pages.append(Page(filename=filename, title=title, html=html))
         self._refresh_pages_list()
         self.pages_list.setCurrentRow(len(self.project.pages) - 1)
+        self.html_editor.setPlainText(html)
         self.update_preview()
 
     def remove_page(self) -> None:
@@ -2735,15 +3137,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.design_primary.setText(palette["primary"])
             self.design_surface.setText(palette["surface"])
             self.design_text.setText(palette["text"])
-        base_css = build_base_css(palette, fonts)
+        base_css = generate_base_css(palette, fonts)
         current_css = self.css_editor.toPlainText()
-        helpers_index = current_css.find(CSS_HELPERS_SENTINEL)
-        remainder = ""
-        if helpers_index != -1:
-            remainder = current_css[helpers_index:]
-        else:
-            remainder = "\n\n" + CSS_HELPERS_BLOCK
-        new_css = base_css.rstrip() + "\n\n" + remainder.strip() + "\n"
+        helper_block = extract_css_block(current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
+        new_css = ensure_block(base_css, CSS_HELPERS_SENTINEL, helper_block)
+        extra_block = extract_css_block(current_css, TEMPLATE_EXTRA_SENTINEL)
+        if extra_block:
+            new_css = ensure_block(new_css, TEMPLATE_EXTRA_SENTINEL, extra_block)
         self.css_editor.setPlainText(new_css)
         self.project.css = new_css
         self.project.palette = palette
@@ -2754,11 +3154,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def add_css_helpers(self) -> None:
         css = self.css_editor.toPlainText()
-        if CSS_HELPERS_SENTINEL in css:
+        updated = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
+        if updated == css:
             QtWidgets.QMessageBox.information(self, "Already added", "CSS helpers are already in your stylesheet.")
             return
-        self.css_editor.appendPlainText("\n\n" + CSS_HELPERS_BLOCK)
-        self.project.css = self.css_editor.toPlainText()
+        self.css_editor.setPlainText(updated)
+        self.project.css = updated
         self.update_preview()
 
     # Asset management --------------------------------------------------
