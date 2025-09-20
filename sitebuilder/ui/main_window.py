@@ -91,9 +91,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _build_menu(self) -> None:
         bar = self.menuBar()
-        if bar is None:
-            bar = QtWidgets.QMenuBar(self)
-            self.setMenuBar(bar)
 
         # File
         m_file = bar.addMenu("&File")
@@ -103,14 +100,13 @@ class MainWindow(QtWidgets.QMainWindow):
         act_save_as = QtGui.QAction("Save Asâ€¦", self)
         act_export = QtGui.QAction("Export Siteâ€¦", self)
         act_quit = QtGui.QAction("Quit", self)
-        if m_file is not None:
-            m_file.addActions([act_new, act_open])
-            m_file.addSeparator()
-            m_file.addActions([act_save, act_save_as])
-            m_file.addSeparator()
-            m_file.addAction(act_export)
-            m_file.addSeparator()
-            m_file.addAction(act_quit)
+        m_file.addActions([act_new, act_open])
+        m_file.addSeparator()
+        m_file.addActions([act_save, act_save_as])
+        m_file.addSeparator()
+        m_file.addAction(act_export)
+        m_file.addSeparator()
+        m_file.addAction(act_quit)
 
         self.act_new, self.act_open, self.act_save, self.act_save_as, self.act_export, self.act_quit = \
             act_new, act_open, act_save, act_save_as, act_export, act_quit
@@ -118,8 +114,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Help
         m_help = bar.addMenu("&Help")
         act_about = QtGui.QAction("About", self)
-        if m_help is not None:
-            m_help.addAction(act_about)
+        m_help.addAction(act_about)
         self.act_about = act_about
 
     def _bind_events(self) -> None:
@@ -169,8 +164,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.html_editor.setPlainText(self.project.pages[0].html)
         self.update_window_title()
         self.update_preview()
-        if self.status is not None:
-            self.status.showMessage(f"Opened {os.path.basename(path)}", 3000)
+        self.status.showMessage(f"Opened {os.path.basename(path)}", 3000)
 
     def save_project(self) -> None:
         if self.project is None:
@@ -179,8 +173,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.project_path:
             return self.save_project_as()
         storage.save_project(self.project_path, self.project)
-        if self.status is not None:
-            self.status.showMessage("Project saved", 2000)
+        self.status.showMessage("Project saved", 2000)
 
     def save_project_as(self) -> None:
         if self.project is None:
@@ -194,8 +187,7 @@ class MainWindow(QtWidgets.QMainWindow):
         storage.save_project(path, self.project)
         self.project_path = Path(path)
         self.update_window_title()
-        if self.status is not None:
-            self.status.showMessage(f"Saved {os.path.basename(path)}", 3000)
+        self.status.showMessage(f"Saved {os.path.basename(path)}", 3000)
 
     def export_site(self) -> None:
         if self.project is None:
@@ -206,8 +198,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         templates_dir = Path(__file__).resolve().parent.parent / "core" / "templates"
         generator.render_site(self.project, out_dir, templates_dir)
-        if self.status is not None:
-            self.status.showMessage(f"Exported site to {out_dir}", 5000)
+        self.status.showMessage(f"Exported site to {out_dir}", 5000)
         QtWidgets.QMessageBox.information(self, "Export complete", f"Your site was exported to:\n{out_dir}")
 
     # ---------- Pages ----------
