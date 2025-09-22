@@ -37,10 +37,7 @@ def svg_wave(fill: str = "#e2e8f0") -> str:
 
 
 """Webineer Site Builder — enhanced single-file PyQt6 app."""
-
-
-# Ensure migrate_project_v1_to_v2 is defined before use
-# (Already defined later in this file)
+# ---------------------------------------------------------------------------
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 
@@ -152,7 +149,6 @@ def _tune_design_layouts(root_widget: QtWidgets.QWidget) -> None:
         sp.setHorizontalPolicy(QtWidgets.QSizePolicy.Policy.Expanding)
         sp.setVerticalPolicy(QtWidgets.QSizePolicy.Policy.Preferred)
         stk.setSizePolicy(sp)
-
 
 # ---------------------------------------------------------------------------
 # Utility helpers
@@ -601,7 +597,6 @@ THEME_PRESETS: Dict[str, Dict[str, str]] = {
     "Mint Fresh": {"primary": "#10b981", "surface": "#ecfdf5", "text": "#064e3b"},
 }
 
-
 THEME_STYLE_PRESETS: Dict[str, Dict[str, object]] = {
     "Glassmorphism": {
         "fonts": {"heading": "'Poppins', 'Segoe UI', sans-serif", "body": "'Inter', 'Segoe UI', sans-serif"},
@@ -649,7 +644,6 @@ body { background: #e2e8f0; }
     },
 }
 
-
 FONT_STACKS = [
     "'Inter', 'Segoe UI', sans-serif",
     "'Poppins', 'Segoe UI', sans-serif",
@@ -662,7 +656,6 @@ FONT_STACKS = [
 # ---------------------------------------------------------------------------
 # CSS Helpers & Snippets
 # ---------------------------------------------------------------------------
-
 
 CSS_HELPERS_SENTINEL = "/* === WEBINEER CSS HELPERS (DO NOT DUPLICATE) === */"
 ANIM_HELPERS_SENTINEL = "/* === WEBINEER ANIMATION HELPERS === */"
@@ -4117,7 +4110,9 @@ def template_preview_html(
 
 def preview_project_for_template(
         template_key: str,
-        project_name: Optional[str] = None) -> Project:
+        project_name: Optional[str] = None,
+        palette: Optional[Dict[str, str]] = None,
+        fonts: Optional[Dict[str, str]] = None) -> Project:
     spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
     pages = [
         Page(
@@ -4128,8 +4123,9 @@ def preview_project_for_template(
                 project_name or spec.name))
         for filename, title, html in spec.pages[:1]
     ]
-    palette = dict(spec.palette or DEFAULT_PALETTE)
-    fonts = dict(spec.fonts or DEFAULT_FONTS)
+    # Prefer wizard's palette/fonts, then template, then global defaults
+    palette = dict(palette or spec.palette or DEFAULT_PALETTE)
+    fonts = dict(fonts or spec.fonts or DEFAULT_FONTS)
     project = Project(
         name=project_name or spec.name,
         pages=pages,
