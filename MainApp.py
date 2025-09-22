@@ -27,13 +27,13 @@ from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 def svg_wave(fill: str = "#e2e8f0") -> str:
 
-  path = (
-    "M0,96L60,90C120,85,240,74,360,72C480,70,600,78,720,90C840,102,960,118,1080,114C1200,110,1320,86,1380,74L1440,64L1440,120L1380,120C1320,120,1200,120,1080,120C960,120,840,120,720,120C600,120,480,120,360,120C240,120,120,120,60,120L0,120Z"
-  )
-  return (
-    "<svg class=\"wave\" aria-hidden=\"true\" viewBox=\"0 0 1440 120\" preserveAspectRatio=\"none\">"
-    f"<path fill=\"{fill}\" d=\"{path}\"></path></svg>"
-  )
+    path = (
+        "M0,96L60,90C120,85,240,74,360,72C480,70,600,78,720,90C840,102,960,118,1080,114C1200,110,1320,86,1380,74L1440,64L1440,120L1380,120C1320,120,1200,120,1080,120C960,120,840,120,720,120C600,120,480,120,360,120C240,120,120,120,60,120L0,120Z"
+    )
+    return (
+        "<svg class=\"wave\" aria-hidden=\"true\" viewBox=\"0 0 1440 120\" preserveAspectRatio=\"none\">"
+        f"<path fill=\"{fill}\" d=\"{path}\"></path></svg>"
+    )
 
 
 """Webineer Site Builder — enhanced single-file PyQt6 app."""
@@ -47,6 +47,111 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 APP_TITLE = "Webineer Site Builder"
 APP_ICON_PATH = "icon.ico"
 SITE_VERSION = 3
+# ---- UI spacing defaults (comfortable, consistent) ----
+UI_MARGIN_PX = 14        # was ~6 in several places
+UI_SPACING_PX = 12
+FORM_HSPACE_PX = 12
+FORM_VSPACE_PX = 10
+
+
+def _tune_design_layouts(root_widget: QtWidgets.QWidget) -> None:
+    # Make all input fields and combos expand horizontally
+    for widget_type in (QtWidgets.QLineEdit, QtWidgets.QComboBox):
+        for w in root_widget.findChildren(widget_type):
+            w.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
+                            QtWidgets.QSizePolicy.Policy.Preferred)
+
+    # For buttons, set both expanding horizontal policy and a comfortable minimum height
+    for btn in root_widget.findChildren(QtWidgets.QPushButton):
+        btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
+                          QtWidgets.QSizePolicy.Policy.Preferred)
+        btn.setMinimumHeight(32)
+
+    # Make all child layouts of QGroupBox and QFormLayout expand horizontally
+    for gb in root_widget.findChildren(QtWidgets.QGroupBox):
+        l = gb.layout()
+        if l is not None:
+            l.setAlignment(Qt.AlignmentFlag.AlignTop)
+            # For QHBoxLayout and QVBoxLayout, set stretch factors
+            if isinstance(l, (QtWidgets.QHBoxLayout, QtWidgets.QVBoxLayout)):
+                for i in range(l.count()):
+                    item = l.itemAt(i)
+                    if item is not None and hasattr(item, 'widget') and callable(getattr(item, 'widget', None)):
+                        w = item.widget()
+                        if w:
+                            w.setSizePolicy(
+                                QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+    # Limit the maximum width of the main Design tab content to prevent stretching in fullscreen
+    if isinstance(root_widget, QtWidgets.QWidget):
+        # 900px is a comfortable max width for forms
+        root_widget.setMaximumWidth(900)
+        # Optionally, center the content if the parent is much wider
+        parent = root_widget.parentWidget()
+        if parent and parent.width() > 1000:
+            root_widget.setContentsMargins(
+                (parent.width() - 900) // 2, UI_MARGIN_PX, (parent.width() - 900) // 2, UI_MARGIN_PX)
+    """
+    Loosen margins/spacing and make fields grow inside the Design tab.
+    Safe: only changes layout properties; no logic or signal behaviour.
+    """
+    # Apply to all descendant layouts
+    for lay in root_widget.findChildren((QtWidgets.QVBoxLayout,
+                                         QtWidgets.QHBoxLayout,
+                                         QtWidgets.QGridLayout,
+                                         QtWidgets.QFormLayout)):
+        # margins + generic spacing
+        try:
+            lay.setContentsMargins(
+                UI_MARGIN_PX, UI_MARGIN_PX, UI_MARGIN_PX, UI_MARGIN_PX)
+        except Exception:
+            pass
+        try:
+            lay.setSpacing(UI_SPACING_PX)
+        except Exception:
+            pass
+
+        # form-specific tweaks for better readability
+        if isinstance(lay, QtWidgets.QFormLayout):
+            try:
+                lay.setHorizontalSpacing(FORM_HSPACE_PX)
+                lay.setVerticalSpacing(FORM_VSPACE_PX)
+                lay.setFieldGrowthPolicy(
+                    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+                lay.setRowWrapPolicy(
+                    QtWidgets.QFormLayout.RowWrapPolicy.WrapLongRows)
+                lay.setFormAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+            except Exception:
+                pass
+
+    # Give every group a little “breathing room” below
+    for gb in root_widget.findChildren(QtWidgets.QGroupBox):
+        try:
+            gb.setMinimumWidth(340)
+            gb.setMaximumWidth(700)
+            gb.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding,
+                             QtWidgets.QSizePolicy.Policy.Preferred)
+            l = gb.layout()
+            if l is not None:
+                l.setAlignment(Qt.AlignmentFlag.AlignTop)
+                # Add vertical spacing below each group
+                spacer = QtWidgets.QSpacerItem(
+                    0, UI_SPACING_PX // 2, QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
+                l.addItem(spacer)
+        except Exception:
+            pass
+
+    # Last touch: if the Background panel has a stacked “options” area,
+    # make sure it has a sensible minimum height so it doesn’t collapse.
+    for stk in root_widget.findChildren(QtWidgets.QStackedWidget):
+        # Only nudge if it’s currently very small
+        if stk.minimumHeight() < 140:
+            stk.setMinimumHeight(180)
+        # Ensure it can expand to fill available space
+        sp = stk.sizePolicy()
+        sp.setHorizontalPolicy(QtWidgets.QSizePolicy.Policy.Expanding)
+        sp.setVerticalPolicy(QtWidgets.QSizePolicy.Policy.Preferred)
+        stk.setSizePolicy(sp)
 
 
 # ---------------------------------------------------------------------------
@@ -110,17 +215,17 @@ class SettingsManager:
         if SETTINGS_PATH.exists():
             try:
                 self._settings = json.loads(
-    SETTINGS_PATH.read_text(
-        encoding="utf-8"))
+                    SETTINGS_PATH.read_text(
+                        encoding="utf-8"))
             except Exception:
                 self._settings = {}
 
     def save(self) -> None:
         SETTINGS_PATH.write_text(
-    json.dumps(
-        self._settings,
-        indent=2),
-         encoding="utf-8")
+            json.dumps(
+                self._settings,
+                indent=2),
+            encoding="utf-8")
 
     def get(self, key: str, default: str = "") -> str:
         return self._settings.get(key, default)
@@ -225,10 +330,10 @@ class BackgroundSpec:
 
     def to_dict(self) -> Dict[str, object]:
         return {
-    "scope": self.scope,
-    "kind": self.kind,
-    "value": dict(
-        self.value)}
+            "scope": self.scope,
+            "kind": self.kind,
+            "value": dict(
+                self.value)}
 
     @classmethod
     def from_dict(cls, data: Dict[str, object]) -> "BackgroundSpec":
@@ -239,9 +344,9 @@ class BackgroundSpec:
         else:
             value = {}
         return cls(
-    scope=str(
-        data.get(
-            "scope", "site")), kind=str(
+            scope=str(
+                data.get(
+                    "scope", "site")), kind=str(
                 data.get(
                     "kind", "solid")), value=value)
 
@@ -278,206 +383,206 @@ MOTION_PREF_OPTIONS: Dict[str, str] = {
 
 @dataclass
 class Project:
-        name: str = "My Site"
-        pages: List[Page] = field(default_factory=list)
-        css: str = ""
-        palette: Dict[str, str] = field(
-            default_factory=lambda: dict(DEFAULT_PALETTE))
-        fonts: Dict[str, str] = field(
-            default_factory=lambda: dict(DEFAULT_FONTS))
-        images: List[AssetImage] = field(default_factory=list)
-        external: List[ExternalAsset] = field(default_factory=list)
-        backgrounds: List[BackgroundSpec] = field(default_factory=list)
-        template_key: str = "starter"
-        theme_preset: str = "Calm Sky"
-        use_main_js: bool = False
-        output_dir: Optional[str] = None
-        version: int = SITE_VERSION
-        use_scroll_animations: bool = False
-        gradients: Dict[str, str] = field(
-            default_factory=lambda: dict(DEFAULT_GRADIENT))
-        radius_scale: float = 1.0
-        shadow_level: str = "md"
-        motion_pref: str = "respect"
-        motion_default_effect: str = "none"
-        motion_default_easing: str = "cubic-bezier(.2,.65,.2,1)"
-        motion_default_duration: int = 600
-        motion_default_delay: int = 0
-        cover_path: Optional[str] = None
-        cover_updated_utc: Optional[str] = None
-        cover_asset_name: Optional[str] = None
-        cover_tile_path: Optional[str] = None
+    name: str = "My Site"
+    pages: List[Page] = field(default_factory=list)
+    css: str = ""
+    palette: Dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_PALETTE))
+    fonts: Dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_FONTS))
+    images: List[AssetImage] = field(default_factory=list)
+    external: List[ExternalAsset] = field(default_factory=list)
+    backgrounds: List[BackgroundSpec] = field(default_factory=list)
+    template_key: str = "starter"
+    theme_preset: str = "Calm Sky"
+    use_main_js: bool = False
+    output_dir: Optional[str] = None
+    version: int = SITE_VERSION
+    use_scroll_animations: bool = False
+    gradients: Dict[str, str] = field(
+        default_factory=lambda: dict(DEFAULT_GRADIENT))
+    radius_scale: float = 1.0
+    shadow_level: str = "md"
+    motion_pref: str = "respect"
+    motion_default_effect: str = "none"
+    motion_default_easing: str = "cubic-bezier(.2,.65,.2,1)"
+    motion_default_duration: int = 600
+    motion_default_delay: int = 0
+    cover_path: Optional[str] = None
+    cover_updated_utc: Optional[str] = None
+    cover_asset_name: Optional[str] = None
+    cover_tile_path: Optional[str] = None
 
-        def to_dict(self) -> Dict[str, object]:
-            return {
-                "name": self.name,
-                "pages": [asdict(p) for p in self.pages],
-                "css": self.css,
-                "palette": self.palette,
-                "fonts": self.fonts,
-                "images": [img.to_dict() for img in self.images],
-                "external": [asset.to_dict() for asset in self.external],
-                "backgrounds": [bg.to_dict() for bg in self.backgrounds],
-                "template_key": self.template_key,
-                "theme_preset": self.theme_preset,
-                "use_main_js": self.use_main_js,
-                "output_dir": self.output_dir,
-                "version": self.version,
-                "use_scroll_animations": self.use_scroll_animations,
-                "gradients": dict(self.gradients),
-                "radius_scale": self.radius_scale,
-                "shadow_level": self.shadow_level,
-                "motion_pref": self.motion_pref,
-                "motion_default_effect": self.motion_default_effect,
-                "motion_default_easing": self.motion_default_easing,
-                "motion_default_duration": self.motion_default_duration,
-                "motion_default_delay": self.motion_default_delay,
-                "cover_path": self.cover_path,
-                "cover_updated_utc": self.cover_updated_utc,
-                "cover_asset_name": self.cover_asset_name,
-                "cover_tile_path": self.cover_tile_path,
-            }
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "name": self.name,
+            "pages": [asdict(p) for p in self.pages],
+            "css": self.css,
+            "palette": self.palette,
+            "fonts": self.fonts,
+            "images": [img.to_dict() for img in self.images],
+            "external": [asset.to_dict() for asset in self.external],
+            "backgrounds": [bg.to_dict() for bg in self.backgrounds],
+            "template_key": self.template_key,
+            "theme_preset": self.theme_preset,
+            "use_main_js": self.use_main_js,
+            "output_dir": self.output_dir,
+            "version": self.version,
+            "use_scroll_animations": self.use_scroll_animations,
+            "gradients": dict(self.gradients),
+            "radius_scale": self.radius_scale,
+            "shadow_level": self.shadow_level,
+            "motion_pref": self.motion_pref,
+            "motion_default_effect": self.motion_default_effect,
+            "motion_default_easing": self.motion_default_easing,
+            "motion_default_duration": self.motion_default_duration,
+            "motion_default_delay": self.motion_default_delay,
+            "cover_path": self.cover_path,
+            "cover_updated_utc": self.cover_updated_utc,
+            "cover_asset_name": self.cover_asset_name,
+            "cover_tile_path": self.cover_tile_path,
+        }
 
-        @classmethod
-        def from_dict(cls, data: Dict[str, object]) -> "Project":
-            def safe_int(val, default=1):
-                try:
-                    return int(val)
-                except (TypeError, ValueError):
-                    return default
+    @classmethod
+    def from_dict(cls, data: Dict[str, object]) -> "Project":
+        def safe_int(val, default=1):
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return default
 
-            def safe_float(val, default=1.0):
-                try:
-                    return float(val)
-                except (TypeError, ValueError):
-                    return default
+        def safe_float(val, default=1.0):
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return default
 
-            def safe_list(val):
-                return val if isinstance(val, list) else []
+        def safe_list(val):
+            return val if isinstance(val, list) else []
 
-            def safe_dict(val, default):
-                if isinstance(val, dict):
-                    return {str(k): str(v) for k, v in val.items()}
-                return dict(default)
+        def safe_dict(val, default):
+            if isinstance(val, dict):
+                return {str(k): str(v) for k, v in val.items()}
+            return dict(default)
 
-            version = safe_int(data.get("version", 1))
-            if version == 1:
-                data = migrate_project_v1_to_v2(data)
-            pages = [Page(**p) for p in safe_list(data.get("pages", []))]
-            images = [
-    AssetImage.from_dict(img) for img in safe_list(
-        data.get(
-            "images",
-            [])) if isinstance(
+        version = safe_int(data.get("version", 1))
+        if version == 1:
+            data = migrate_project_v1_to_v2(data)
+        pages = [Page(**p) for p in safe_list(data.get("pages", []))]
+        images = [
+            AssetImage.from_dict(img) for img in safe_list(
+                data.get(
+                    "images",
+                    [])) if isinstance(
                 img,
-                 dict)]
-            external_items: List[ExternalAsset] = []
-            for entry in safe_list(data.get("external", [])):
+                dict)]
+        external_items: List[ExternalAsset] = []
+        for entry in safe_list(data.get("external", [])):
+            if isinstance(entry, dict):
+                external_items.append(ExternalAsset.from_dict(entry))
+        backgrounds_data = data.get("backgrounds", [])
+        background_items: List[BackgroundSpec] = []
+        if isinstance(backgrounds_data, list):
+            for entry in backgrounds_data:
                 if isinstance(entry, dict):
-                    external_items.append(ExternalAsset.from_dict(entry))
-            backgrounds_data = data.get("backgrounds", [])
-            background_items: List[BackgroundSpec] = []
-            if isinstance(backgrounds_data, list):
-                for entry in backgrounds_data:
-                    if isinstance(entry, dict):
-                        background_items.append(
-                            BackgroundSpec.from_dict(entry))
-            elif isinstance(backgrounds_data, dict):
-                for key, entry in backgrounds_data.items():
-                    if isinstance(entry, dict):
-                        value = dict(entry)
-                        value.setdefault("page", str(key))
-                        background_items.append(
-                            BackgroundSpec(
-                                scope=str(entry.get("scope", "page")),
-                                kind=str(entry.get("kind", "solid")),
-                                value={str(k): str(v)
-                                           for k, v in value.items()},
-                            )
+                    background_items.append(
+                        BackgroundSpec.from_dict(entry))
+        elif isinstance(backgrounds_data, dict):
+            for key, entry in backgrounds_data.items():
+                if isinstance(entry, dict):
+                    value = dict(entry)
+                    value.setdefault("page", str(key))
+                    background_items.append(
+                        BackgroundSpec(
+                            scope=str(entry.get("scope", "page")),
+                            kind=str(entry.get("kind", "solid")),
+                            value={str(k): str(v)
+                                   for k, v in value.items()},
                         )
-            palette = safe_dict(
-    data.get(
-        "palette",
-        DEFAULT_PALETTE),
-         DEFAULT_PALETTE)
-            fonts = safe_dict(data.get("fonts", DEFAULT_FONTS), DEFAULT_FONTS)
-            output_dir = data.get("output_dir")
-            if output_dir is not None and not isinstance(output_dir, str):
-                output_dir = str(output_dir)
-            gradients_raw = data.get("gradients")
-            gradients = dict(DEFAULT_GRADIENT)
-            if isinstance(gradients_raw, dict):
-                gradients = {
-                    "from": str(gradients_raw.get("from", gradients["from"])),
-                    "to": str(gradients_raw.get("to", gradients["to"])),
-                    "angle": str(gradients_raw.get("angle", gradients["angle"])),
-                }
-            radius_scale = safe_float(data.get("radius_scale", 1.0), 1.0)
-            if radius_scale <= 0:
-                radius_scale = 1.0
-            shadow_level = str(data.get("shadow_level", "md"))
-            if shadow_level not in {"none", "sm", "md", "lg"}:
-                shadow_level = "md"
-            motion_pref = str(data.get("motion_pref", "respect"))
-            if motion_pref not in {"respect", "force_on", "force_off"}:
-                motion_pref = "respect"
-            motion_default_effect = str(
-                data.get("motion_default_effect", "none"))
-            if motion_default_effect not in {"none", "fade", "zoom", "blur"}:
-                motion_default_effect = "none"
-            motion_default_easing = str(
-                data.get("motion_default_easing", "cubic-bezier(.2,.65,.2,1)")
-            )
-            motion_default_duration = safe_int(
-                data.get("motion_default_duration", 600), 600)
-            if motion_default_duration < 0:
-                motion_default_duration = 600
-            motion_default_delay = safe_int(
-                data.get("motion_default_delay", 0), 0)
-            if motion_default_delay < 0:
-                motion_default_delay = 0
-            cover_path_raw = data.get("cover_path")
-            cover_path = str(cover_path_raw) if isinstance(
-    cover_path_raw, str) or cover_path_raw is None else str(cover_path_raw)
-            cover_updated = data.get("cover_updated_utc")
-            cover_asset_name = data.get("cover_asset_name")
-            cover_tile_raw = data.get("cover_tile_path")
-            cover_tile = (
-                str(cover_tile_raw)
-                if isinstance(cover_tile_raw, str) or cover_tile_raw is None
-                else str(cover_tile_raw)
-            )
-            return cls(
-                name=str(data.get("name", "My Site")),
-                pages=pages,
-                css=str(data.get("css", "")),
-                palette=palette,
-                fonts=fonts,
-                images=images,
-                external=external_items,
-                backgrounds=background_items,
-                template_key=str(data.get("template_key", "starter")),
-                theme_preset=str(data.get("theme_preset", "Calm Sky")),
-                use_main_js=bool(data.get("use_main_js", False)),
-                output_dir=output_dir,
-                version=version,
-                use_scroll_animations=bool(
-                    data.get("use_scroll_animations", False)),
-                gradients=gradients,
-                radius_scale=radius_scale,
-                shadow_level=shadow_level,
-                motion_pref=motion_pref,
-                motion_default_effect=motion_default_effect,
-                motion_default_easing=motion_default_easing,
-                motion_default_duration=motion_default_duration,
-                motion_default_delay=motion_default_delay,
-                cover_path=cover_path,
-                cover_updated_utc=str(
-                    cover_updated) if cover_updated else None,
-                cover_asset_name=str(
-                    cover_asset_name) if cover_asset_name else None,
-                cover_tile_path=cover_tile,
-            )
+                    )
+        palette = safe_dict(
+            data.get(
+                "palette",
+                DEFAULT_PALETTE),
+            DEFAULT_PALETTE)
+        fonts = safe_dict(data.get("fonts", DEFAULT_FONTS), DEFAULT_FONTS)
+        output_dir = data.get("output_dir")
+        if output_dir is not None and not isinstance(output_dir, str):
+            output_dir = str(output_dir)
+        gradients_raw = data.get("gradients")
+        gradients = dict(DEFAULT_GRADIENT)
+        if isinstance(gradients_raw, dict):
+            gradients = {
+                "from": str(gradients_raw.get("from", gradients["from"])),
+                "to": str(gradients_raw.get("to", gradients["to"])),
+                "angle": str(gradients_raw.get("angle", gradients["angle"])),
+            }
+        radius_scale = safe_float(data.get("radius_scale", 1.0), 1.0)
+        if radius_scale <= 0:
+            radius_scale = 1.0
+        shadow_level = str(data.get("shadow_level", "md"))
+        if shadow_level not in {"none", "sm", "md", "lg"}:
+            shadow_level = "md"
+        motion_pref = str(data.get("motion_pref", "respect"))
+        if motion_pref not in {"respect", "force_on", "force_off"}:
+            motion_pref = "respect"
+        motion_default_effect = str(
+            data.get("motion_default_effect", "none"))
+        if motion_default_effect not in {"none", "fade", "zoom", "blur"}:
+            motion_default_effect = "none"
+        motion_default_easing = str(
+            data.get("motion_default_easing", "cubic-bezier(.2,.65,.2,1)")
+        )
+        motion_default_duration = safe_int(
+            data.get("motion_default_duration", 600), 600)
+        if motion_default_duration < 0:
+            motion_default_duration = 600
+        motion_default_delay = safe_int(
+            data.get("motion_default_delay", 0), 0)
+        if motion_default_delay < 0:
+            motion_default_delay = 0
+        cover_path_raw = data.get("cover_path")
+        cover_path = str(cover_path_raw) if isinstance(
+            cover_path_raw, str) or cover_path_raw is None else str(cover_path_raw)
+        cover_updated = data.get("cover_updated_utc")
+        cover_asset_name = data.get("cover_asset_name")
+        cover_tile_raw = data.get("cover_tile_path")
+        cover_tile = (
+            str(cover_tile_raw)
+            if isinstance(cover_tile_raw, str) or cover_tile_raw is None
+            else str(cover_tile_raw)
+        )
+        return cls(
+            name=str(data.get("name", "My Site")),
+            pages=pages,
+            css=str(data.get("css", "")),
+            palette=palette,
+            fonts=fonts,
+            images=images,
+            external=external_items,
+            backgrounds=background_items,
+            template_key=str(data.get("template_key", "starter")),
+            theme_preset=str(data.get("theme_preset", "Calm Sky")),
+            use_main_js=bool(data.get("use_main_js", False)),
+            output_dir=output_dir,
+            version=version,
+            use_scroll_animations=bool(
+                data.get("use_scroll_animations", False)),
+            gradients=gradients,
+            radius_scale=radius_scale,
+            shadow_level=shadow_level,
+            motion_pref=motion_pref,
+            motion_default_effect=motion_default_effect,
+            motion_default_easing=motion_default_easing,
+            motion_default_duration=motion_default_duration,
+            motion_default_delay=motion_default_delay,
+            cover_path=cover_path,
+            cover_updated_utc=str(
+                cover_updated) if cover_updated else None,
+            cover_asset_name=str(
+                cover_asset_name) if cover_asset_name else None,
+            cover_tile_path=cover_tile,
+        )
 
 # ---------------------------------------------------------------------------
 # Templates & presets
@@ -1594,7 +1699,7 @@ class ColorButton(QtWidgets.QPushButton):
         self.setText(self._color.upper())
         self.setStyleSheet(
             f"background:{
-    self._color}; border: 1px solid rgba(148,163,184,0.6); border-radius:4px;"
+                self._color}; border: 1px solid rgba(148,163,184,0.6); border-radius:4px;"
             " padding: 6px;"
         )
 
@@ -1687,8 +1792,8 @@ class TemplateSpec:
 def _starter_spec() -> TemplateSpec:
     hero = html_section_hero()
     hero = hero.replace(
-    "Headline that inspires confidence",
-     "Welcome to {{SITE_NAME}}")
+        "Headline that inspires confidence",
+        "Welcome to {{SITE_NAME}}")
     hero = hero.replace(
         "Explain what you offer and the value in a friendly tone.",
         "Share a friendly, one-sentence promise that sets the tone.",
@@ -1908,7 +2013,7 @@ def _portfolio_spec() -> TemplateSpec:
         [html_section_contact_form(), html_section_faq()])
     palette = {"primary": "#15803d", "surface": "#f0fdf4", "text": "#052e16"}
     fonts = {"heading": "'Poppins', 'Segoe UI', sans-serif",
-        "body": "'Inter', 'Segoe UI', sans-serif"}
+             "body": "'Inter', 'Segoe UI', sans-serif"}
     cover_html = """
 <div class=\"portfolio-cover\">
   <section class=\"portfolio-hero\">
@@ -2061,8 +2166,8 @@ body {
 def _resource_spec() -> TemplateSpec:
     hero = html_section_hero()
     hero = hero.replace(
-    "Headline that inspires confidence",
-     "{{SITE_NAME}} Resource Hub")
+        "Headline that inspires confidence",
+        "{{SITE_NAME}} Resource Hub")
     hero = hero.replace(
         "Explain what you offer and the value in a friendly tone.",
         "Find guides, tutorials, and quick wins for your team.",
@@ -2132,8 +2237,8 @@ def _resource_spec() -> TemplateSpec:
 </section>"""
     palette = {"primary": "#6366f1", "surface": "#111827", "text": "#f9fafb"}
     fonts = {
-    "heading": "'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif",
-     "body": "'Inter', 'Segoe UI', sans-serif"}
+        "heading": "'Source Sans Pro', 'Helvetica Neue', Arial, sans-serif",
+        "body": "'Inter', 'Segoe UI', sans-serif"}
     cover_html = """
 <div class=\"resource-cover\">
   <section class=\"resource-hero\">
@@ -2443,9 +2548,9 @@ def _saas_bold_spec() -> TemplateSpec:
 </section>"""
     platform_html = "\n\n".join([platform_section, html_section_faq()])
     pricing_html = "\n\n".join([_pricing_hero(),
-    html_section_pricing(),
-    html_section_testimonials(),
-     html_section_cta()])
+                                html_section_pricing(),
+                                html_section_testimonials(),
+                                html_section_cta()])
     extra_css = """.glass-panel {
   backdrop-filter: blur(18px);
   background: rgba(15, 23, 42, 0.4);
@@ -2487,7 +2592,7 @@ def _saas_bold_spec() -> TemplateSpec:
 """
     palette = {"primary": "#38bdf8", "surface": "#0f172a", "text": "#e0f2fe"}
     fonts = {"heading": "'Space Grotesk', 'Segoe UI', sans-serif",
-        "body": "'Inter', 'Segoe UI', sans-serif"}
+             "body": "'Inter', 'Segoe UI', sans-serif"}
     gradients = {"from": "#22d3ee", "to": "#6366f1", "angle": "118deg"}
     cover_html = """
 <div class=\"saas-cover\">
@@ -2839,7 +2944,7 @@ def _photo_showcase_spec() -> TemplateSpec:
 """
     palette = {"primary": "#f59e0b", "surface": "#0f172a", "text": "#f8fafc"}
     fonts = {"heading": "'Playfair Display', 'Times New Roman', serif",
-        "body": "'Source Sans Pro', 'Helvetica Neue', sans-serif"}
+             "body": "'Source Sans Pro', 'Helvetica Neue', sans-serif"}
     gradients = {"from": "#0ea5e9", "to": "#f472b6", "angle": "135deg"}
     cover_html = """
 <div class=\"photo-cover\">
@@ -3184,7 +3289,7 @@ def _event_launch_spec() -> TemplateSpec:
 """
     palette = {"primary": "#fb923c", "surface": "#111827", "text": "#fef3c7"}
     fonts = {"heading": "'Plus Jakarta Sans', 'Segoe UI', sans-serif",
-        "body": "'Inter', 'Segoe UI', sans-serif"}
+             "body": "'Inter', 'Segoe UI', sans-serif"}
     gradients = {"from": "#fb923c", "to": "#f43f5e", "angle": "120deg"}
     cover_html = """
 <div class=\"event-cover\">
@@ -3391,11 +3496,11 @@ body {
 def _pricing_hero() -> str:
     hero = html_section_hero()
     hero = hero.replace(
-    "Headline that inspires confidence",
-     "Pricing that scales with you")
+        "Headline that inspires confidence",
+        "Pricing that scales with you")
     hero = hero.replace(
-    "Explain what you offer and the value in a friendly tone.",
-     "Pick the plan that matches your stage.")
+        "Explain what you offer and the value in a friendly tone.",
+        "Pick the plan that matches your stage.")
     hero = hero.replace("Primary call to action", "Choose a plan")
     hero = hero.replace("Secondary link", "Contact sales")
     return hero
@@ -3404,11 +3509,11 @@ def _pricing_hero() -> str:
 def _contact_intro() -> str:
     hero = html_section_hero()
     hero = hero.replace(
-    "Headline that inspires confidence",
-     "We’d love to hear from you")
+        "Headline that inspires confidence",
+        "We’d love to hear from you")
     hero = hero.replace(
-    "Explain what you offer and the value in a friendly tone.",
-     "Reach out with project ideas, support questions, or quick hellos.")
+        "Explain what you offer and the value in a friendly tone.",
+        "Reach out with project ideas, support questions, or quick hellos.")
     hero = hero.replace("Primary call to action", "Send a message")
     hero = hero.replace("Secondary link", "Schedule a call")
     return hero
@@ -3439,17 +3544,17 @@ def page_pricing() -> str:
 
 def page_about() -> str:
     sections = [
-    html_section_about_header(),
-    html_section_two_column(),
-     html_section_testimonials()]
+        html_section_about_header(),
+        html_section_two_column(),
+        html_section_testimonials()]
     return "\n\n".join(sections)
 
 
 def page_contact() -> str:
     sections = [
-    _contact_intro(),
-    html_section_contact_form(),
-     html_section_faq()]
+        _contact_intro(),
+        html_section_contact_form(),
+        html_section_faq()]
     return "\n\n".join(sections)
 
 
@@ -3491,9 +3596,9 @@ def page_blog_post() -> str:
 
 def page_portfolio() -> str:
     sections = [
-    html_section_gallery(),
-    html_section_testimonials(),
-     html_section_cta()]
+        html_section_gallery(),
+        html_section_testimonials(),
+        html_section_cta()]
     return "\n\n".join(sections)
 
 
@@ -3598,7 +3703,7 @@ def _normalize_hex(color: str, default: str) -> str:
 
 
 def _color_from_palette(
-    palette: Dict[str, str], key: str, fallback: str) -> QtGui.QColor:
+        palette: Dict[str, str], key: str, fallback: str) -> QtGui.QColor:
     value = _normalize_hex(palette.get(key, fallback), fallback)
     color = QtGui.QColor(value)
     if not color.isValid():
@@ -3651,10 +3756,10 @@ def _project_cover_asset(project: Project) -> Optional[QtGui.QPixmap]:
     candidate: Optional[AssetImage] = None
     if project.cover_asset_name:
         candidate = next(
-    (img for img in project.images if img.name == project.cover_asset_name), None)
+            (img for img in project.images if img.name == project.cover_asset_name), None)
     if candidate is None:
         candidate = next(
-    (img for img in project.images if img.mime != "image/svg+xml"), None)
+            (img for img in project.images if img.mime != "image/svg+xml"), None)
     if candidate is None and project.images:
         candidate = project.images[0]
     if candidate is None or not candidate.data_base64:
@@ -3670,18 +3775,18 @@ def _project_cover_asset(project: Project) -> Optional[QtGui.QPixmap]:
 
 
 def render_project_cover(
-    project: Project,
-     size: QtCore.QSize = COVER_FULL_SIZE) -> QtGui.QPixmap:
+        project: Project,
+        size: QtCore.QSize = COVER_FULL_SIZE) -> QtGui.QPixmap:
     surface = _color_from_palette(
-    project.palette,
-    "surface",
-     DEFAULT_PALETTE["surface"])
+        project.palette,
+        "surface",
+        DEFAULT_PALETTE["surface"])
     primary = _color_from_palette(
-    project.palette,
-    "primary",
-     DEFAULT_PALETTE["primary"])
+        project.palette,
+        "primary",
+        DEFAULT_PALETTE["primary"])
     text_color = _color_from_palette(
-    project.palette, "text", DEFAULT_PALETTE["text"])
+        project.palette, "text", DEFAULT_PALETTE["text"])
     pixmap = QtGui.QPixmap(size)
     pixmap.fill(surface)
     painter = QtGui.QPainter(pixmap)
@@ -3690,18 +3795,18 @@ def render_project_cover(
     margin = int(min(size.width(), size.height()) * 0.06)
     hero_height = int(size.height() * 0.55)
     hero_rect = QtCore.QRectF(
-    margin,
-    margin,
-    size.width() -
-    margin *
-    2,
-     hero_height)
+        margin,
+        margin,
+        size.width() -
+        margin *
+        2,
+        hero_height)
     hero_path = QtGui.QPainterPath()
     radius = min(hero_rect.width(), hero_rect.height()) * 0.06
     hero_path.addRoundedRect(hero_rect, radius, radius)
     gradient = QtGui.QLinearGradient(
-    hero_rect.topLeft(),
-     hero_rect.bottomRight())
+        hero_rect.topLeft(),
+        hero_rect.bottomRight())
     grad_primary = QtGui.QColor(primary)
     grad_primary.setAlphaF(0.85)
     gradient.setColorAt(0.0, grad_primary)
@@ -3724,29 +3829,29 @@ def render_project_cover(
         hero_rect.height() - content_margin * 2,
     )
     heading_font = QtGui.QFont(
-    _primary_font(
-        project.fonts.get(
-            "heading",
-            DEFAULT_FONTS["heading"]),
-             "Poppins"))
+        _primary_font(
+            project.fonts.get(
+                "heading",
+                DEFAULT_FONTS["heading"]),
+            "Poppins"))
     heading_font.setBold(True)
     heading_font.setPointSizeF(max(28.0, size.width() / 28))
     eyebrow_font = QtGui.QFont(
-    _primary_font(
-        project.fonts.get(
-            "body",
-            DEFAULT_FONTS["body"]),
-             "Inter"))
+        _primary_font(
+            project.fonts.get(
+                "body",
+                DEFAULT_FONTS["body"]),
+            "Inter"))
     eyebrow_font.setPointSizeF(max(13.0, size.width() / 55))
     eyebrow_font.setLetterSpacing(
-    QtGui.QFont.SpacingType.PercentageSpacing, 108)
+        QtGui.QFont.SpacingType.PercentageSpacing, 108)
     eyebrow_font.setCapitalization(QtGui.QFont.Capitalization.AllUppercase)
     body_font = QtGui.QFont(
-    _primary_font(
-        project.fonts.get(
-            "body",
-            DEFAULT_FONTS["body"]),
-             "Inter"))
+        _primary_font(
+            project.fonts.get(
+                "body",
+                DEFAULT_FONTS["body"]),
+            "Inter"))
     body_font.setPointSizeF(max(14.0, size.width() / 60))
 
     painter.save()
@@ -3758,14 +3863,14 @@ def render_project_cover(
     painter.setPen(QtGui.QPen(text_color))
     painter.setFont(heading_font)
     title_rect = QtCore.QRectF(
-    text_rect.left(),
-    text_rect.top() + 32,
-    text_rect.width(),
-     text_rect.height())
+        text_rect.left(),
+        text_rect.top() + 32,
+        text_rect.width(),
+        text_rect.height())
     painter.drawText(
-    title_rect,
-    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-     project.name.strip() or "Untitled")
+        title_rect,
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+        project.name.strip() or "Untitled")
 
     tagline = _extract_tagline(project)
     painter.setFont(body_font)
@@ -3782,20 +3887,20 @@ def render_project_cover(
     chip_spacing = 16
     chip_y = tagline_rect.top() + max(tagline_rect.height() * 0.4, 48)
     chip_rect_primary = QtCore.QRectF(
-    text_rect.left(), chip_y, 160, chip_height)
+        text_rect.left(), chip_y, 160, chip_height)
     chip_rect_secondary = QtCore.QRectF(
-    chip_rect_primary.right() +
-    chip_spacing,
-    chip_y,
-    150,
-     chip_height)
+        chip_rect_primary.right() +
+        chip_spacing,
+        chip_y,
+        150,
+        chip_height)
     cta_text_color = _contrast_text_for(primary)
 
     def draw_chip(
-    rect: QtCore.QRectF,
-    bg: QtGui.QColor,
-    fg: QtGui.QColor,
-     label: str) -> None:
+            rect: QtCore.QRectF,
+            bg: QtGui.QColor,
+            fg: QtGui.QColor,
+            label: str) -> None:
         path = QtGui.QPainterPath()
         path.addRoundedRect(rect, chip_height / 2, chip_height / 2)
         painter.fillPath(path, bg)
@@ -3828,9 +3933,9 @@ def render_project_cover(
         art_path.addRoundedRect(art_rect, 28, 28)
         painter.setClipPath(art_path)
         scaled = image_pix.scaled(
-    art_rect.size().toSize(),
-    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-     Qt.TransformationMode.SmoothTransformation)
+            art_rect.size().toSize(),
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation)
         target = QtCore.QRectF(
             art_rect.center().x() - scaled.width() / 2,
             art_rect.center().y() - scaled.height() / 2,
@@ -3847,10 +3952,10 @@ def render_project_cover(
     card_area_height = size.height() - cards_top - margin
     if card_area_height > 0:
         cards_rect = QtCore.QRectF(
-    hero_rect.left(),
-    cards_top,
-    hero_rect.width(),
-     card_area_height)
+            hero_rect.left(),
+            cards_top,
+            hero_rect.width(),
+            card_area_height)
         card_spacing = 20
         card_width = (cards_rect.width() - card_spacing * 2) / 3
         card_titles = _collect_card_titles(project)
@@ -3878,9 +3983,9 @@ def render_project_cover(
                 40,
             )
             painter.drawText(
-    heading_rect,
-    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-     title)
+                heading_rect,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+                title)
             painter.setFont(QtGui.QFont(body_font.family(),
                             int(max(12.0, size.width() / 70))))
             body_rect = QtCore.QRectF(
@@ -3921,15 +4026,15 @@ def _cover_base_key(project_path_or_temp: Optional[Path]) -> str:
 
 
 def save_cover_png(
-    pixmap: QtGui.QPixmap,
-     project_path_or_temp: Optional[Path]) -> Path:
+        pixmap: QtGui.QPixmap,
+        project_path_or_temp: Optional[Path]) -> Path:
     base_key = _cover_base_key(project_path_or_temp)
     cover_path = COVERS_DIR / f"{base_key}-cover.png"
     tile_path = PREVIEWS_DIR / f"{base_key}-tile.png"
     pixmap.save(str(cover_path), "PNG")
     tile = pixmap.scaled(COVER_TILE_SIZE,
-    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-     Qt.TransformationMode.SmoothTransformation)
+                         Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                         Qt.TransformationMode.SmoothTransformation)
     tile.save(str(tile_path), "PNG")
     return cover_path
 
@@ -3940,8 +4045,8 @@ def cover_tile_path_from_cover(cover_path: Path) -> Path:
 
 
 def get_cover_or_thumbnail(
-    project: Project,
-     project_path: Optional[Path] = None) -> Optional[Path]:
+        project: Project,
+        project_path: Optional[Path] = None) -> Optional[Path]:
     if project.cover_path and Path(project.cover_path).exists():
         return Path(project.cover_path)
     if project.cover_tile_path and Path(project.cover_tile_path).exists():
@@ -4007,20 +4112,20 @@ def template_preview_html(
     heading_font = fonts.get("heading", DEFAULT_FONTS["heading"])
     body_font = fonts.get("body", DEFAULT_FONTS["body"])
     return f"""<!doctype html><html><head><meta charset='utf-8'><title>{
-    spec.name} preview</title><style>:root {{ --color-primary: {primary}; --color-surface: {surface}; --color-text: {text}; --font-heading: {heading_font}; --font-body: {body_font}; }} {css}</style></head><body class='template-cover'>{html}</body></html>"""
+        spec.name} preview</title><style>:root {{ --color-primary: {primary}; --color-surface: {surface}; --color-text: {text}; --font-heading: {heading_font}; --font-body: {body_font}; }} {css}</style></head><body class='template-cover'>{html}</body></html>"""
 
 
 def preview_project_for_template(
-    template_key: str,
-     project_name: Optional[str] = None) -> Project:
+        template_key: str,
+        project_name: Optional[str] = None) -> Project:
     spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
     pages = [
         Page(
-    filename=filename,
-    title=title,
-    html=html.replace(
-        "{{SITE_NAME}}",
-         project_name or spec.name))
+            filename=filename,
+            title=title,
+            html=html.replace(
+                "{{SITE_NAME}}",
+                project_name or spec.name))
         for filename, title, html in spec.pages[:1]
     ]
     palette = dict(spec.palette or DEFAULT_PALETTE)
@@ -4044,7 +4149,7 @@ def template_cover_pixmap(
     key: str,
     size: QtCore.QSize = QtCore.QSize(
         360,
-         200)) -> QtGui.QPixmap:
+        200)) -> QtGui.QPixmap:
     """Return a cached cover pixmap for template tiles and previews."""
 
     if size.isValid() is False or size.width() <= 0 or size.height() <= 0:
@@ -4222,8 +4327,8 @@ def migrate_project_v1_to_v2(data: Dict[str, object]) -> Dict[str, object]:
         name=str(data.get("name", "My Site")),
         pages=pages,
         css=str(data.get("css", "")),
-    output_dir=str(data.get("output_dir")) if data.get(
-        "output_dir") is not None else None,
+        output_dir=str(data.get("output_dir")) if data.get(
+            "output_dir") is not None else None,
         palette=dict(DEFAULT_PALETTE),
         fonts=dict(DEFAULT_FONTS),
         images=[],
@@ -4246,11 +4351,11 @@ def load_project(path: Path) -> MigrationResult:
 def save_project(path: Path, project: Project) -> None:
     payload = project.to_dict()
     path.write_text(
-    json.dumps(
-        payload,
-        indent=2,
-        ensure_ascii=False),
-         encoding="utf-8")
+        json.dumps(
+            payload,
+            indent=2,
+            ensure_ascii=False),
+        encoding="utf-8")
 
 
 def render_site(project: Project, output_dir: Path) -> None:
@@ -4270,21 +4375,21 @@ def render_site(project: Project, output_dir: Path) -> None:
     css = ensure_block(css_source, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
     css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
     css = ensure_block(
-    css,
-    GRADIENT_HELPERS_SENTINEL,
-    gradient_helpers_block(
-        project.gradients))
+        css,
+        GRADIENT_HELPERS_SENTINEL,
+        gradient_helpers_block(
+            project.gradients))
     css = ensure_block(
-    css,
-    ANIM_HELPERS_SENTINEL,
-    animation_helpers_block(
-        project.motion_pref))
+        css,
+        ANIM_HELPERS_SENTINEL,
+        animation_helpers_block(
+            project.motion_pref))
     extra_block = extract_css_block(css_source, TEMPLATE_EXTRA_SENTINEL)
     if extra_block:
         css = ensure_block(
-    css,
-    TEMPLATE_EXTRA_SENTINEL,
-     f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
+            css,
+            TEMPLATE_EXTRA_SENTINEL,
+            f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
     (css_dir / "style.css").write_text(css, encoding="utf-8")
     for asset in project.images:
         data = base64.b64decode(asset.data_base64.encode("ascii"))
@@ -4299,11 +4404,11 @@ def render_site(project: Project, output_dir: Path) -> None:
                 rel_path = Path("assets") / "vendor" / rel_path.name
             if not rel_path.name:
                 fallback_base = slugify(
-    asset.original_url or asset.href or f"{
-        asset.kind}-asset")
+                    asset.original_url or asset.href or f"{
+                        asset.kind}-asset")
                 fallback_name = f"{
-    fallback_base or 'external'}{
-        '.css' if asset.kind == 'css' else '.js'}"
+                    fallback_base or 'external'}{
+                    '.css' if asset.kind == 'css' else '.js'}"
                 rel_path = Path("assets") / "vendor" / fallback_name
             href_value = rel_path.as_posix()
             if href_value != asset.href:
@@ -4357,12 +4462,12 @@ def render_site(project: Project, output_dir: Path) -> None:
             external_css=external_css_payload,
             external_js=external_js_payload,
             color_primary=project.palette.get(
-    "primary", DEFAULT_PALETTE["primary"]),
+                "primary", DEFAULT_PALETTE["primary"]),
             color_surface=project.palette.get(
-    "surface", DEFAULT_PALETTE["surface"]),
+                "surface", DEFAULT_PALETTE["surface"]),
             color_text=project.palette.get("text", DEFAULT_PALETTE["text"]),
             heading_font=project.fonts.get(
-    "heading", DEFAULT_FONTS["heading"]),
+                "heading", DEFAULT_FONTS["heading"]),
             body_font=project.fonts.get("body", DEFAULT_FONTS["body"]),
         )
         (output_dir / page.filename).write_text(html, encoding="utf-8")
@@ -4401,9 +4506,9 @@ class RecentItem:
             path=str(data.get("path", "")),
             name=str(data.get("name", "Untitled")),
             last_opened=str(
-    data.get(
-        "last_opened",
-         datetime.utcnow().isoformat())),
+                data.get(
+                    "last_opened",
+                    datetime.utcnow().isoformat())),
             pinned=bool(data.get("pinned", False)),
             thumbnail=(str(data["thumbnail"])
                        if data.get("thumbnail") else None),
@@ -4444,10 +4549,10 @@ class RecentProjectsManager:
                 self.save()
                 return
         self._items.append(
-    RecentItem(
-        path=path_str,
-        name=project.name,
-         last_opened=now))
+            RecentItem(
+                path=path_str,
+                name=project.name,
+                last_opened=now))
         self.save()
 
     def remove(self, path: str) -> None:
@@ -4497,7 +4602,7 @@ class RecentProjectsManager:
 
 
 def write_project_thumbnail(project: Project,
-     project_path: Optional[Path]) -> Optional[Path]:
+                            project_path: Optional[Path]) -> Optional[Path]:
     base_reference: Optional[Path]
     if project_path is None and project.cover_path:
         base_reference = Path(project.cover_path)
@@ -4572,7 +4677,7 @@ class TemplatePreviewDialog(QtWidgets.QDialog):
         self.view = QWebEngineView(self)
         layout.addWidget(self.view, 1)
         buttons = QtWidgets.QDialogButtonBox(
-    QtWidgets.QDialogButtonBox.StandardButton.Close, parent=self)
+            QtWidgets.QDialogButtonBox.StandardButton.Close, parent=self)
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
@@ -4592,16 +4697,16 @@ class TemplateSelectionResult:
 
 class TemplateSelectDialog(QtWidgets.QDialog):
     def __init__(self,
-    parent: Optional[QtWidgets.QWidget] = None,
-    templates: Dict[str,
-     TemplateSpec] | None = None) -> None:
+                 parent: Optional[QtWidgets.QWidget] = None,
+                 templates: Dict[str,
+                                 TemplateSpec] | None = None) -> None:
         super().__init__(parent)
         ensure_app_icon(self)
         self.setWindowTitle("Start a new project")
         self.resize(1100, 720)
         self._templates = templates or PROJECT_TEMPLATES
         self._template_order = [
-    key for key in self._templates.keys() if key in PROJECT_TEMPLATES]
+            key for key in self._templates.keys() if key in PROJECT_TEMPLATES]
         if not self._template_order:
             self._template_order = ["starter"]
         self._template_cards: Dict[str, TemplateCard] = {}
@@ -4665,7 +4770,7 @@ class TemplateSelectDialog(QtWidgets.QDialog):
                     title=spec.name,
                     description=spec.description,
                     default_pages=[(filename, html)
-                                    for filename, _, html in spec.pages],
+                                   for filename, _, html in spec.pages],
                     cover_html=spec.cover_html,
                     cover_css=spec.cover_css,
                 )
@@ -4718,18 +4823,18 @@ class TemplateSelectDialog(QtWidgets.QDialog):
     def _highlight_selected_card(self) -> None:
         for key, card in self._template_cards.items():
             card.setStyleSheet(
-    "border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_key else "")
+                "border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_key else "")
 
     def _apply_theme_palette(self, theme: str) -> None:
         palette = THEME_PRESETS.get(theme, DEFAULT_PALETTE)
         self.primary_edit.setText(
-    palette.get(
-        "primary",
-         DEFAULT_PALETTE["primary"]))
+            palette.get(
+                "primary",
+                DEFAULT_PALETTE["primary"]))
         self.surface_edit.setText(
-    palette.get(
-        "surface",
-         DEFAULT_PALETTE["surface"]))
+            palette.get(
+                "surface",
+                DEFAULT_PALETTE["surface"]))
         self.text_edit.setText(palette.get("text", DEFAULT_PALETTE["text"]))
         self._update_preview()
 
@@ -4740,8 +4845,8 @@ class TemplateSelectDialog(QtWidgets.QDialog):
             "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
         }
         fonts = {
-    "heading": self.heading_combo.currentText(),
-     "body": self.body_combo.currentText()}
+            "heading": self.heading_combo.currentText(),
+            "body": self.body_combo.currentText()}
         definition = TEMPLATES.get(self._selected_key)
         fallback_title = definition.title if definition else self._templates.get(
             self._selected_key, PROJECT_TEMPLATES["starter"]).name
@@ -4756,8 +4861,8 @@ class TemplateSelectDialog(QtWidgets.QDialog):
             "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
         }
         fonts = {
-    "heading": self.heading_combo.currentText(),
-     "body": self.body_combo.currentText()}
+            "heading": self.heading_combo.currentText(),
+            "body": self.body_combo.currentText()}
         definition = TEMPLATES.get(key)
         fallback_title = definition.title if definition else self._templates.get(
             key, PROJECT_TEMPLATES["starter"]).name
@@ -4776,8 +4881,8 @@ class TemplateSelectDialog(QtWidgets.QDialog):
             "text": self.text_edit.text().strip() or DEFAULT_PALETTE["text"],
         }
         fonts = {
-    "heading": self.heading_combo.currentText(),
-     "body": self.body_combo.currentText()}
+            "heading": self.heading_combo.currentText(),
+            "body": self.body_combo.currentText()}
         definition = TEMPLATES.get(self._selected_key)
         fallback_title = definition.title if definition else self._templates.get(
             self._selected_key, PROJECT_TEMPLATES["starter"]).name
@@ -4802,7 +4907,7 @@ class PageTemplateDialog(QtWidgets.QDialog):
         self.setWindowTitle("Add Page")
         self._types = page_types or {}
         self._section_entries: List[Tuple[QtWidgets.QCheckBox, Callable[[], str]]] = [
-            ]
+        ]
         self._auto_title = ""
         self._title_custom = False
         self._suppress_title_signal = False
@@ -4835,8 +4940,8 @@ class PageTemplateDialog(QtWidgets.QDialog):
         base_title = page_type.replace("Page", "").strip() or "Page"
         current_text = self.title_edit.text().strip()
         should_update = (
-    not self._title_custom) or (
-        not current_text) or (
+            not self._title_custom) or (
+            not current_text) or (
             current_text == self._auto_title)
         self._auto_title = base_title
         if should_update:
@@ -4928,8 +5033,8 @@ class TemplateCard(QtWidgets.QFrame):
         layout.addStretch()
 
         self.preview_button.clicked.connect(
-    lambda: self.preview_requested.emit(
-        self.template.key))
+            lambda: self.preview_requested.emit(
+                self.template.key))
         self.update_preview_pixmap(preview_pixmap)
 
     def update_preview_pixmap(self, pixmap: Optional[QtGui.QPixmap]) -> None:
@@ -4939,40 +5044,40 @@ class TemplateCard(QtWidgets.QFrame):
             painter = QtGui.QPainter(placeholder)
             painter.setPen(QtGui.QPen(QtGui.QColor("#1d4ed8")))
             painter.drawRoundedRect(
-    6,
-    6,
-    placeholder.width() -
-    12,
-    placeholder.height() -
-    12,
-    14,
-     14)
+                6,
+                6,
+                placeholder.width() -
+                12,
+                placeholder.height() -
+                12,
+                14,
+                14)
             painter.setPen(QtGui.QColor("#1e293b"))
             painter.drawText(
-    placeholder.rect(),
-    Qt.AlignmentFlag.AlignCenter,
-     self.template.title)
+                placeholder.rect(),
+                Qt.AlignmentFlag.AlignCenter,
+                self.template.title)
             painter.end()
             self.thumb.setPixmap(placeholder)
         else:
             self.thumb.setPixmap(
-    pixmap.scaled(
-        self.thumb.size(),
-        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-         Qt.TransformationMode.SmoothTransformation))
+                pixmap.scaled(
+                    self.thumb.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation))
 
     def enterEvent(self, event: QtGui.QEnterEvent) -> None:
-          self.preview_button.setVisible(True)
-          super().enterEvent(event)
+        self.preview_button.setVisible(True)
+        super().enterEvent(event)
 
     def leaveEvent(self, event: QtGui.QEnterEvent) -> None:
-          self.preview_button.setVisible(False)
-          super().leaveEvent(event)
+        self.preview_button.setVisible(False)
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
-          if event.button() == Qt.MouseButton.LeftButton:
-              self.clicked.emit(self.template.key)
-          super().mouseReleaseEvent(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.template.key)
+        super().mouseReleaseEvent(event)
 
 
 class RecentTileList(QtWidgets.QListWidget):
@@ -4986,7 +5091,7 @@ class RecentTileList(QtWidgets.QListWidget):
         self.setSpacing(18)
         self.setWordWrap(True)
         self.setSelectionMode(
-    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.setIconSize(COVER_TILE_SIZE)
         self.setUniformItemSizes(False)
         self.setAlternatingRowColors(False)
@@ -5026,7 +5131,7 @@ class AssetListWidget(QtWidgets.QListWidget):
         mime = event.mimeData()
         if mime is not None and mime.hasUrls():
             paths = [url.toLocalFile()
-                                     for url in mime.urls() if url.isLocalFile()]
+                     for url in mime.urls() if url.isLocalFile()]
             if paths:
                 self.filesDropped.emit(paths)
         else:
@@ -5049,15 +5154,15 @@ class GuidedPlanDialog(QtWidgets.QDialog):
         intro.setWordWrap(True)
         layout.addWidget(intro)
         self.purpose = self._create_group(
-    "What are you making?", [
-        "Landing", "Portfolio", "Resource", "Other"], layout)
+            "What are you making?", [
+                "Landing", "Portfolio", "Resource", "Other"], layout)
         self.audience = self._create_group(
             "Who is it for?", ["Customers", "Hiring managers",
-                "Internal users", "Community"], layout
+                               "Internal users", "Community"], layout
         )
         self.goal = self._create_group(
             "What's the goal?", [
-    "Get signups", "Showcase work", "Provide help docs", "Share news"], layout
+                "Get signups", "Showcase work", "Provide help docs", "Share news"], layout
         )
         layout.addWidget(QtWidgets.QLabel("Short blurb (optional):"))
         self.blurb = QtWidgets.QPlainTextEdit(self)
@@ -5273,7 +5378,7 @@ class NewProjectWizard(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(page)
         layout.addWidget(QtWidgets.QLabel("Select pages"))
         self.page_checks: List[Tuple[QtWidgets.QCheckBox,
-            QtWidgets.QLineEdit]] = []
+                                     QtWidgets.QLineEdit]] = []
         for title in ["Home", "About", "Projects", "Docs", "Contact", "Blog"]:
             box = QtWidgets.QCheckBox(title, page)
             edit = QtWidgets.QLineEdit(title, page)
@@ -5337,7 +5442,7 @@ class NewProjectWizard(QtWidgets.QDialog):
             self._selected_template_key = next(iter(self.template_cards))
         for key, card in self.template_cards.items():
             card.setStyleSheet(
-    "border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_template_key else "")
+                "border: 2px solid #2563eb; border-radius: 12px;" if key == self._selected_template_key else "")
 
     def _current_palette(self) -> Dict[str, str]:
         theme_combo = getattr(self, "theme_combo", None)
@@ -5363,14 +5468,14 @@ class NewProjectWizard(QtWidgets.QDialog):
         name_edit = getattr(self, "describe_name", None)
         project_name = name_edit.text().strip() if name_edit is not None else ""
         spec = PROJECT_TEMPLATES.get(
-    self._selected_template_key,
-     PROJECT_TEMPLATES["starter"])
+            self._selected_template_key,
+            PROJECT_TEMPLATES["starter"])
         display_name = project_name or spec.name
         html = template_preview_html(
-    self._selected_template_key,
-    display_name,
-    palette,
-     fonts)
+            self._selected_template_key,
+            display_name,
+            palette,
+            fonts)
         self.template_preview.setHtml(html)
         if self.template_caption is not None:
             self.template_caption.setText(
@@ -5390,7 +5495,7 @@ class NewProjectWizard(QtWidgets.QDialog):
         name_edit = getattr(self, "describe_name", None)
         display_name = name_edit.text().strip() if name_edit is not None else ""
         html = template_preview_html(
-    key, display_name or title, palette, fonts)
+            key, display_name or title, palette, fonts)
         dialog = TemplatePreviewDialog(title, self)
         dialog.set_preview_html(html)
         dialog.exec()
@@ -5457,13 +5562,13 @@ class NewProjectWizard(QtWidgets.QDialog):
         if not name:
             if validate:
                 QtWidgets.QMessageBox.warning(
-    self, "Missing name", "Please provide a project name.")
+                    self, "Missing name", "Please provide a project name.")
             return None, None
         location = self.describe_location.text().strip()
         if not location:
             if validate:
                 QtWidgets.QMessageBox.warning(
-    self, "Missing location", "Choose where to save the project.")
+                    self, "Missing location", "Choose where to save the project.")
             return None, None
         template_key = self._selected_template_key or "starter"
         if template_key not in PROJECT_TEMPLATES:
@@ -5497,10 +5602,10 @@ class NewProjectWizard(QtWidgets.QDialog):
         project.theme_preset = theme
         project.output_dir = location
         path = Path(location) / f"{
-    re.sub(
-        r'[^a-zA-Z0-9_-]+',
-        '-',
-         name.lower()).strip('-') or 'site'}.siteproj"
+            re.sub(
+                r'[^a-zA-Z0-9_-]+',
+                '-',
+                name.lower()).strip('-') or 'site'}.siteproj"
         return project, path
 
     def project_result(self) -> Tuple[Optional[Project], Optional[Path]]:
@@ -5521,7 +5626,7 @@ def create_project_from_template(
     fonts_final = dict(spec.fonts or fonts)
     gradients = dict(spec.gradients or DEFAULT_GRADIENT)
     radius_scale = float(
-    spec.radius_scale) if spec.radius_scale is not None else 1.0
+        spec.radius_scale) if spec.radius_scale is not None else 1.0
     shadow_level = spec.shadow_level if spec.shadow_level in SHADOW_LEVELS else "md"
 
     pages: List[Page] = []
@@ -5552,24 +5657,24 @@ def create_project_from_template(
             counter += 1
         body = (
             f"<section class=\"section\">\n  <h1>{
-    page_titles.get(
-        title, title)}</h1>\n"
+                page_titles.get(
+                    title, title)}</h1>\n"
             "  <p>Write something helpful here.</p>\n</section>"
         )
         pages.append(
-    Page(
-        filename=filename,
-        title=page_titles.get(
-            title,
-            title),
-             html=body))
+            Page(
+                filename=filename,
+                title=page_titles.get(
+                    title,
+                    title),
+                html=body))
         existing_filenames.add(filename)
 
     css = generate_base_css(
-    palette_final,
-    fonts_final,
-    radius_scale,
-     shadow_level)
+        palette_final,
+        fonts_final,
+        radius_scale,
+        shadow_level)
     if spec.include_helpers:
         css = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
     css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
@@ -5592,7 +5697,7 @@ def create_project_from_template(
         shadow_level=shadow_level,
     )
     project.theme_preset = next(
-    (key for key, val in THEME_PRESETS.items() if val == palette_final), "Custom")
+        (key for key, val in THEME_PRESETS.items() if val == palette_final), "Custom")
     return project
 
 
@@ -5614,17 +5719,17 @@ def placeholder_images() -> List[AssetImage]:
         data = base64.b64encode(buffer.data().data()).decode("ascii")
         images.append(
             AssetImage(
-    name=name,
-    data_base64=data,
-    width=pix.width(),
-    height=pix.height(),
-     mime="image/png")
+                name=name,
+                data_base64=data,
+                width=pix.width(),
+                height=pix.height(),
+                mime="image/png")
         )
     return images
 
 
 def generate_svg_placeholder(
-    width: int, height: int, palette: Dict[str, str]) -> str:
+        width: int, height: int, palette: Dict[str, str]) -> str:
     primary = palette.get("primary", DEFAULT_PALETTE["primary"])
     surface = palette.get("surface", DEFAULT_PALETTE["surface"])
     text = palette.get("text", DEFAULT_PALETTE["text"])
@@ -5633,10 +5738,10 @@ def generate_svg_placeholder(
         f"<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>"
         f"<stop offset='0%' stop-color='{primary}' stop-opacity='0.85'/><stop offset='100%' stop-color='{primary}' stop-opacity='0.35'/></linearGradient></defs>"
         f"<rect width='100%' height='100%' fill='{surface}'/><rect x='{
-    width *
-    0.05}' y='{
-        height *
-        0.1}' rx='{
+            width *
+            0.05}' y='{
+            height *
+            0.1}' rx='{
             width *
             0.04}' ry='{
                 width *
@@ -5644,49 +5749,49 @@ def generate_svg_placeholder(
                     width *
                     0.9}' height='{
                         height *
-                         0.8}' fill='url(#g)' opacity='0.65'/>"
+            0.8}' fill='url(#g)' opacity='0.65'/>"
         f"<rect x='{
-    width *
-    0.08}' y='{
-        height *
-        0.18}' width='{
+            width *
+            0.08}' y='{
+            height *
+            0.18}' width='{
             width *
             0.35}' height='{
                 height *
                 0.05}' rx='{
                     height *
-                     0.02}' fill='{primary}' opacity='0.35'/>"
+            0.02}' fill='{primary}' opacity='0.35'/>"
         f"<rect x='{
-    width *
-    0.08}' y='{
-        height *
-        0.28}' width='{
+            width *
+            0.08}' y='{
+            height *
+            0.28}' width='{
             width *
             0.5}' height='{
                 height *
                 0.06}' rx='{
                     height *
-                     0.02}' fill='{primary}' opacity='0.28'/>"
+            0.02}' fill='{primary}' opacity='0.28'/>"
         f"<rect x='{
-    width *
-    0.08}' y='{
-        height *
-        0.38}' width='{
+            width *
+            0.08}' y='{
+            height *
+            0.38}' width='{
             width *
             0.45}' height='{
                 height *
                 0.05}' rx='{
                     height *
-                     0.02}' fill='{primary}' opacity='0.18'/>"
+            0.02}' fill='{primary}' opacity='0.18'/>"
         f"<text x='{
-    width /
-    2}' y='{
-        height *
-        0.65}' text-anchor='middle' fill='{text}' font-family='Inter, sans-serif' font-size='{
+            width /
+            2}' y='{
+            height *
+            0.65}' text-anchor='middle' fill='{text}' font-family='Inter, sans-serif' font-size='{
             max(
                 18,
                 width *
-                 0.04)}' font-weight='600' opacity='0.75'>Hero placeholder {width}×{height}</text>"
+                0.04)}' font-weight='600' opacity='0.75'>Hero placeholder {width}×{height}</text>"
         "</svg>"
     )
 
@@ -5729,7 +5834,7 @@ class StartWindow(QtWidgets.QMainWindow):
         self.nav_list.setFixedWidth(220)
         self.nav_list.setSpacing(4)
         self.nav_list.setSelectionMode(
-    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         for label in ["Create New", "Open", "Import", "Recent", "Learn"]:
             item = QtWidgets.QListWidgetItem(label)
             font = item.font()
@@ -5827,10 +5932,10 @@ class StartWindow(QtWidgets.QMainWindow):
         layout.addLayout(purpose_row)
         for btn, option in radio_buttons:
             btn.toggled.connect(
-    lambda checked,
-    text=option: self._quick_purpose_changed(
-        text,
-         checked))
+                lambda checked,
+                text=option: self._quick_purpose_changed(
+                    text,
+                    checked))
 
         form_group = QtWidgets.QGroupBox("Project details", content)
         form = QtWidgets.QFormLayout(form_group)
@@ -5841,9 +5946,9 @@ class StartWindow(QtWidgets.QMainWindow):
         self.create_location.setPlaceholderText(
             "Where to save the .siteproj file")
         self.create_location.setText(
-    self.settings.get(
-        "last_save_dir", str(
-            Path.home())))
+            self.settings.get(
+                "last_save_dir", str(
+                    Path.home())))
         browse = QtWidgets.QPushButton("Browse…", form_group)
         browse.clicked.connect(self._browse_save_location)
         location_layout = QtWidgets.QHBoxLayout()
@@ -5897,14 +6002,14 @@ class StartWindow(QtWidgets.QMainWindow):
         self._page_checks.clear()
         self._page_edits.clear()
         labels = [
-    "About",
-    "Projects",
-    "Docs",
-    "Contact",
-    "Blog",
-    "Pricing",
-    "FAQ",
-     "Updates"]
+            "About",
+            "Projects",
+            "Docs",
+            "Contact",
+            "Blog",
+            "Pricing",
+            "FAQ",
+            "Updates"]
         for idx, label in enumerate(labels):
             check = QtWidgets.QCheckBox(label, pages_group)
             if label in ("About", "Contact"):
@@ -5972,9 +6077,9 @@ class StartWindow(QtWidgets.QMainWindow):
         theme = self.create_theme.currentText() if hasattr(
             self, "create_theme") else "Calm Sky"
         palette = dict(
-    THEME_PRESETS.get(
-        theme,
-         spec.palette or DEFAULT_PALETTE))
+            THEME_PRESETS.get(
+                theme,
+                spec.palette or DEFAULT_PALETTE))
         fonts = {
             "heading": self.heading_font_combo.currentText() if hasattr(self, "heading_font_combo") else DEFAULT_FONTS["heading"],
             "body": self.body_font_combo.currentText() if hasattr(self, "body_font_combo") else DEFAULT_FONTS["body"],
@@ -5993,7 +6098,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path = Path(path_str)
         if not path.exists():
             QtWidgets.QMessageBox.warning(
-    self, "Missing", "This project file is missing. Removing from list.")
+                self, "Missing", "This project file is missing. Removing from list.")
             self.recents.remove(path_str)
             self.refresh_recents()
             return
@@ -6062,10 +6167,10 @@ class StartWindow(QtWidgets.QMainWindow):
         self.recent_list = QtWidgets.QListWidget(page)
         self.recent_list.setIconSize(QtCore.QSize(120, 74))
         self.recent_list.setSelectionMode(
-    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.recent_list.itemDoubleClicked.connect(self._open_recent_item)
         self.recent_list.setContextMenuPolicy(
-    Qt.ContextMenuPolicy.CustomContextMenu)
+            Qt.ContextMenuPolicy.CustomContextMenu)
         self.recent_list.customContextMenuRequested.connect(
             self._recent_context_menu)
         layout.addWidget(self.recent_list, 1)
@@ -6112,8 +6217,8 @@ class StartWindow(QtWidgets.QMainWindow):
             self.template_caption.setText(
                 f"<b>{template.title}</b> — {template.description}")
         self.status_bar.showMessage(
-    f"Template set to {
-        TEMPLATES[key].title}", 4000)
+            f"Template set to {
+                TEMPLATES[key].title}", 4000)
 
     def _browse_save_location(self) -> None:
         directory = QtWidgets.QFileDialog.getExistingDirectory(
@@ -6186,18 +6291,18 @@ class StartWindow(QtWidgets.QMainWindow):
         name = self.create_name.text().strip()
         if not name:
             QtWidgets.QMessageBox.warning(
-    self, "Name required", "Please enter a project name.")
+                self, "Name required", "Please enter a project name.")
             return
         location = self.create_location.text().strip()
         if not location:
             QtWidgets.QMessageBox.warning(
-    self, "Choose location", "Select where to save the project file.")
+                self, "Choose location", "Select where to save the project file.")
             return
         selected, titles = self._collect_pages()
         palette = dict(
-    THEME_PRESETS.get(
-        self.create_theme.currentText(),
-         DEFAULT_PALETTE))
+            THEME_PRESETS.get(
+                self.create_theme.currentText(),
+                DEFAULT_PALETTE))
         fonts = {
             "heading": self.heading_font_combo.currentText(),
             "body": self.body_font_combo.currentText(),
@@ -6214,31 +6319,31 @@ class StartWindow(QtWidgets.QMainWindow):
         save_dir = Path(location)
         save_dir.mkdir(parents=True, exist_ok=True)
         slug = re.sub(
-    r"[^a-zA-Z0-9_-]+",
-    "-",
-     name.lower()).strip("-") or "site"
+            r"[^a-zA-Z0-9_-]+",
+            "-",
+            name.lower()).strip("-") or "site"
         project_path = save_dir / f"{slug}.siteproj"
         if project_path.exists():
             if QtWidgets.QMessageBox.question(
-    self, "Overwrite?", f"{
-        project_path.name} already exists. Replace it?") != QtWidgets.QMessageBox.StandardButton.Yes:
+                self, "Overwrite?", f"{
+                    project_path.name} already exists. Replace it?") != QtWidgets.QMessageBox.StandardButton.Yes:
                 return
         try:
             save_project(project_path, project)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(
-    self, "Error", f"Could not save project:\n{exc}")
+                self, "Error", f"Could not save project:\n{exc}")
             return
         self.recents.add_or_bump(project_path, project)
         thumb = write_project_thumbnail(project, project_path)
         tile_path = Path(
-    project.cover_tile_path) if project.cover_tile_path else thumb
+            project.cover_tile_path) if project.cover_tile_path else thumb
         if project.cover_path:
             self.recents.set_cover(
-    project_path,
-    Path(
-        project.cover_path),
-         tile_path=tile_path)
+                project_path,
+                Path(
+                    project.cover_path),
+                tile_path=tile_path)
         elif tile_path:
             self.recents.set_thumbnail(project_path, tile_path)
         self.project_opened.emit(project, project_path)
@@ -6297,18 +6402,18 @@ class StartWindow(QtWidgets.QMainWindow):
     def _open_project_from_path(self, path: Path) -> None:
         if not path.exists():
             QtWidgets.QMessageBox.warning(
-    self, "Not found", "That project file no longer exists.")
+                self, "Not found", "That project file no longer exists.")
             return
         try:
             result = load_project(path)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(
-    self, "Error", f"Couldn't open project:\n{exc}")
+                self, "Error", f"Couldn't open project:\n{exc}")
             return
         self.settings.set("last_open_dir", str(path.parent))
         if result.migrated:
             QtWidgets.QMessageBox.information(
-    self, "Upgraded", "We upgraded this project to the latest format.")
+                self, "Upgraded", "We upgraded this project to the latest format.")
             try:
                 save_project(path, result.project)
             except Exception:
@@ -6355,7 +6460,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path = Path(str(item.data(Qt.ItemDataRole.UserRole)))
         if not path.exists():
             QtWidgets.QMessageBox.warning(
-    self, "Missing", "This project file is missing. Removing from list.")
+                self, "Missing", "This project file is missing. Removing from list.")
             self.recents.remove(str(path))
             self.refresh_recents()
             return
@@ -6455,11 +6560,11 @@ class MainWindow(QtWidgets.QMainWindow):
         box.setText(f"Save changes to “{name}” before {action_label}?")
         box.setInformativeText("If you don’t save, your changes will be lost.")
         save_btn = box.addButton(
-    "Save", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+            "Save", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
         discard_btn = box.addButton(
-    "Don’t Save", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+            "Don’t Save", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
         cancel_btn = box.addButton(
-    "Cancel", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+            "Cancel", QtWidgets.QMessageBox.ButtonRole.RejectRole)
         box.setDefaultButton(save_btn)
         box.exec()
 
@@ -6499,7 +6604,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.pages_list = QtWidgets.QListWidget(left)
         self.pages_list.setSelectionMode(
-    QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         left_layout.addWidget(self.pages_list, 1)
 
         # Center tabs
@@ -6508,7 +6613,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.html_editor = QtWidgets.QPlainTextEdit(self.tab_editors)
         self.html_editor.setPlaceholderText("Write HTML for the current page.")
         font = QtGui.QFontDatabase.systemFont(
-    QtGui.QFontDatabase.SystemFont.FixedFont)
+            QtGui.QFontDatabase.SystemFont.FixedFont)
         font.setPointSize(11)
         self.html_editor.setFont(font)
         self.css_editor = QtWidgets.QPlainTextEdit(self.tab_editors)
@@ -6517,6 +6622,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.tab_editors.addTab(self.html_editor, "Page HTML")
         self.tab_editors.addTab(self.css_editor, "Global CSS")
         self.design_tab = self._build_design_tab()
+        # Apply comfortable spacing and field growth to Design tab
+        _tune_design_layouts(self.design_tab)
+        # Optional: add a little extra separation for group titles
+        self.design_tab.setStyleSheet("""
+            QGroupBox { margin-top: 8px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 2px 6px; }
+        """)
+
         self.assets_tab = self._build_assets_tab()
         self.external_tab = self._build_external_tab()
         self.tab_editors.addTab(self.design_tab, "Design")
@@ -6544,13 +6657,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _build_design_tab(self) -> QtWidgets.QWidget:
         tab = QtWidgets.QWidget(self)
         main_layout = QtWidgets.QVBoxLayout(tab)
-        main_layout.setContentsMargins(8, 8, 8, 8)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(14, 14, 14, 14)
+        main_layout.setSpacing(12)
 
         theme_group = QtWidgets.QGroupBox("Theme & Palette", tab)
         theme_layout = QtWidgets.QFormLayout(theme_group)
         theme_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.design_theme_combo = QtWidgets.QComboBox(theme_group)
         self.design_theme_combo.addItems(
@@ -6560,7 +6673,7 @@ class MainWindow(QtWidgets.QMainWindow):
         theme_layout.addRow("Try a theme", self.design_theme_combo)
 
         def color_field(line_edit: QtWidgets.QLineEdit,
-     swatch: QtWidgets.QLabel) -> QtWidgets.QWidget:
+                        swatch: QtWidgets.QLabel) -> QtWidgets.QWidget:
             widget = QtWidgets.QWidget(theme_group)
             row = QtWidgets.QHBoxLayout(widget)
             row.setContentsMargins(0, 0, 0, 0)
@@ -6578,10 +6691,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "Accent color used for buttons and highlights.")
         self.primary_swatch = QtWidgets.QLabel(theme_group)
         theme_layout.addRow(
-    "Primary color",
-    color_field(
-        self.design_primary,
-         self.primary_swatch))
+            "Primary color",
+            color_field(
+                self.design_primary,
+                self.primary_swatch))
 
         self.design_surface = QtWidgets.QLineEdit(theme_group)
         self.design_surface.setPlaceholderText("#f8fafc")
@@ -6589,10 +6702,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "Background color for sections and cards.")
         self.surface_swatch = QtWidgets.QLabel(theme_group)
         theme_layout.addRow(
-    "Surface color",
-    color_field(
-        self.design_surface,
-         self.surface_swatch))
+            "Surface color",
+            color_field(
+                self.design_surface,
+                self.surface_swatch))
 
         self.design_text = QtWidgets.QLineEdit(theme_group)
         self.design_text.setPlaceholderText("#0f172a")
@@ -6600,10 +6713,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "Main text color for paragraphs and headings.")
         self.text_swatch = QtWidgets.QLabel(theme_group)
         theme_layout.addRow(
-    "Text color",
-    color_field(
-        self.design_text,
-         self.text_swatch))
+            "Text color",
+            color_field(
+                self.design_text,
+                self.text_swatch))
 
         self.design_heading_font = QtWidgets.QComboBox(theme_group)
         self.design_heading_font.addItems(FONT_STACKS)
@@ -6633,7 +6746,7 @@ class MainWindow(QtWidgets.QMainWindow):
         gradient_group = QtWidgets.QGroupBox("Gradients", tab)
         gradient_layout = QtWidgets.QFormLayout(gradient_group)
         gradient_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.gradient_from = QtWidgets.QLineEdit(gradient_group)
         self.gradient_from.setPlaceholderText(DEFAULT_GRADIENT["from"])
@@ -6684,12 +6797,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
         background_group = QtWidgets.QGroupBox("Background", tab)
         background_layout = QtWidgets.QVBoxLayout(background_group)
-        background_layout.setContentsMargins(8, 8, 8, 8)
-        background_layout.setSpacing(6)
+        background_layout.setContentsMargins(14, 14, 14, 14)
+        background_layout.setSpacing(12)
 
         background_form = QtWidgets.QFormLayout()
         background_form.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        background_form.setHorizontalSpacing(12)
+        background_form.setVerticalSpacing(10)
 
         self.bg_scope_combo = QtWidgets.QComboBox(background_group)
         self.bg_scope_combo.addItems(BACKGROUND_SCOPE_CHOICES)
@@ -6701,6 +6816,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.bg_stack = QtWidgets.QStackedWidget(background_group)
         background_form.addRow("Options", self.bg_stack)
+        self.bg_stack.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred
+        )
+        self.bg_stack.setMinimumHeight(240)
 
         # Solid background controls
         solid_widget = QtWidgets.QWidget(self.bg_stack)
@@ -6710,17 +6830,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bg_solid_color = ColorButton("#0f172a", solid_widget)
         solid_layout.addWidget(self.bg_solid_color)
         solid_layout.addStretch(1)
+        solid_widget.setMinimumHeight(160)
         self.bg_stack.addWidget(solid_widget)
 
         # Gradient background controls
         gradient_widget = QtWidgets.QWidget(self.bg_stack)
         gradient_widget_form = QtWidgets.QFormLayout(gradient_widget)
         gradient_widget_form.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.bg_gradient_from = ColorButton(
-    DEFAULT_GRADIENT["from"], gradient_widget)
+            DEFAULT_GRADIENT["from"], gradient_widget)
         self.bg_gradient_to = ColorButton(
-    DEFAULT_GRADIENT["to"], gradient_widget)
+            DEFAULT_GRADIENT["to"], gradient_widget)
         self.bg_gradient_angle = QtWidgets.QSpinBox(gradient_widget)
         self.bg_gradient_angle.setRange(0, 360)
         self.bg_gradient_angle.setSuffix("°")
@@ -6729,13 +6850,14 @@ class MainWindow(QtWidgets.QMainWindow):
         gradient_widget_form.addRow("From", self.bg_gradient_from)
         gradient_widget_form.addRow("To", self.bg_gradient_to)
         gradient_widget_form.addRow("Angle", self.bg_gradient_angle)
+        gradient_widget.setMinimumHeight(200)
         self.bg_stack.addWidget(gradient_widget)
 
         # Image background controls
         image_widget = QtWidgets.QWidget(self.bg_stack)
         image_form = QtWidgets.QFormLayout(image_widget)
         image_form.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         image_path_row = QtWidgets.QHBoxLayout()
         image_path_row.setContentsMargins(0, 0, 0, 0)
         image_path_row.setSpacing(6)
@@ -6756,6 +6878,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bg_image_fixed = QtWidgets.QCheckBox(
             "Fixed (parallax)", image_widget)
         image_form.addRow("Scrolling", self.bg_image_fixed)
+        image_widget.setMinimumHeight(240)
         self.bg_stack.addWidget(image_widget)
 
         # Pattern background controls
@@ -6777,7 +6900,7 @@ class MainWindow(QtWidgets.QMainWindow):
         background_layout.addLayout(background_form)
 
         self.bg_insert_markup = QtWidgets.QCheckBox(
-    "Also insert minimal markup", background_group)
+            "Also insert minimal markup", background_group)
         background_layout.addWidget(self.bg_insert_markup)
 
         background_buttons = QtWidgets.QHBoxLayout()
@@ -6789,6 +6912,7 @@ class MainWindow(QtWidgets.QMainWindow):
         background_buttons.addWidget(self.bg_reset_button)
         background_buttons.addStretch(1)
         background_layout.addLayout(background_buttons)
+        background_layout.addStretch(1)
 
         main_layout.addWidget(background_group)
         self._update_background_pattern_preview()
@@ -6796,7 +6920,7 @@ class MainWindow(QtWidgets.QMainWindow):
         shape_group = QtWidgets.QGroupBox("Corners & Depth", tab)
         shape_layout = QtWidgets.QFormLayout(shape_group)
         shape_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.radius_spin = QtWidgets.QDoubleSpinBox(shape_group)
         self.radius_spin.setRange(0.5, 2.0)
@@ -6816,10 +6940,10 @@ class MainWindow(QtWidgets.QMainWindow):
         motion_group = QtWidgets.QGroupBox("Motion", tab)
         motion_layout = QtWidgets.QFormLayout(motion_group)
         motion_layout.setFieldGrowthPolicy(
-    QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+            QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.motion_enable_scroll = QtWidgets.QCheckBox(
-    "Enable appear-on-scroll (adds small JS)", motion_group)
+            "Enable appear-on-scroll (adds small JS)", motion_group)
         self.motion_enable_scroll.setToolTip(
             "Reveals elements as they enter the viewport.")
         motion_layout.addRow(self.motion_enable_scroll)
@@ -6876,7 +7000,13 @@ class MainWindow(QtWidgets.QMainWindow):
         note.setWordWrap(True)
         main_layout.addWidget(note)
         main_layout.addStretch(1)
-        return tab
+
+        # Optional: wrap the Design tab in a scroll area for resilience
+        scroller = QtWidgets.QScrollArea(self)
+        scroller.setWidget(tab)
+        scroller.setWidgetResizable(True)
+        scroller.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        return scroller
 
     def _build_external_tab(self) -> QtWidgets.QWidget:
         tab = QtWidgets.QWidget(self)
@@ -6886,21 +7016,27 @@ class MainWindow(QtWidgets.QMainWindow):
         button_row = QtWidgets.QHBoxLayout()
         self.btn_external_add_css = QtWidgets.QPushButton("Add CSS link…")
         self.btn_external_add_js = QtWidgets.QPushButton("Add JS link…")
-        self.btn_external_download = QtWidgets.QPushButton("Download to assets")
+        self.btn_external_download = QtWidgets.QPushButton(
+            "Download to assets")
         button_row.addWidget(self.btn_external_add_css)
         button_row.addWidget(self.btn_external_add_js)
         button_row.addWidget(self.btn_external_download)
         button_row.addStretch()
         layout.addLayout(button_row)
         self.external_table = QtWidgets.QTableWidget(0, 4, tab)
-        self.external_table.setHorizontalHeaderLabels(["Type", "Mode", "URL / Path", "Actions"])
+        self.external_table.setHorizontalHeaderLabels(
+            ["Type", "Mode", "URL / Path", "Actions"])
         header = self.external_table.horizontalHeader()
         if header is not None:
             header.setStretchLastSection(True)
-            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-            header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(
+                0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(
+                1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(
+                2, QtWidgets.QHeaderView.ResizeMode.Stretch)
+            header.setSectionResizeMode(
+                3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         vh = self.external_table.verticalHeader()
         if vh is not None:
             vh.setVisible(False)
@@ -6911,7 +7047,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.external_table.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
         )
-        self.external_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.external_table.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self.external_table, 1)
         hint = QtWidgets.QLabel(
             "Link external styles or scripts. Download to keep an offline copy for export."
@@ -6937,9 +7074,12 @@ class MainWindow(QtWidgets.QMainWindow):
         layout.addLayout(button_row)
         action_row = QtWidgets.QHBoxLayout()
         self.btn_set_cover_image = QtWidgets.QPushButton("Set as Cover Image")
-        self.btn_set_cover_image.setToolTip("Use the selected asset as the hero photo for cover art.")
-        self.btn_generate_placeholder = QtWidgets.QPushButton("Generate placeholder…")
-        self.btn_generate_placeholder.setToolTip("Create an inline SVG placeholder image for hero areas.")
+        self.btn_set_cover_image.setToolTip(
+            "Use the selected asset as the hero photo for cover art.")
+        self.btn_generate_placeholder = QtWidgets.QPushButton(
+            "Generate placeholder…")
+        self.btn_generate_placeholder.setToolTip(
+            "Create an inline SVG placeholder image for hero areas.")
         action_row.addWidget(self.btn_set_cover_image)
         action_row.addWidget(self.btn_generate_placeholder)
         action_row.addStretch()
@@ -6952,7 +7092,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.asset_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.asset_preview.setMinimumHeight(160)
         layout.addWidget(self.asset_preview)
-        self.btn_insert_image = QtWidgets.QPushButton("Insert responsive image")
+        self.btn_insert_image = QtWidgets.QPushButton(
+            "Insert responsive image")
         layout.addWidget(self.btn_insert_image)
         return tab
 
@@ -6993,7 +7134,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 for key, snippet in LAYOUT_SNIPPETS.items():
                     action = QtGui.QAction(snippet.label, self)
                     action.triggered.connect(
-                        lambda checked=False, lib=LAYOUT_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                        lambda checked=False, lib=LAYOUT_SNIPPETS, item_key=key: self.insert_snippet(
+                            lib, item_key)
                     )
                     self.menu_layouts.addAction(action)
             self.menu_sections = insert_menu.addMenu("Sections")
@@ -7001,7 +7143,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 for key, snippet in SECTIONS_SNIPPETS.items():
                     action = QtGui.QAction(snippet.label, self)
                     action.triggered.connect(
-                        lambda checked=False, lib=SECTIONS_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                        lambda checked=False, lib=SECTIONS_SNIPPETS, item_key=key: self.insert_snippet(
+                            lib, item_key)
                     )
                     self.menu_sections.addAction(action)
             self.menu_components = insert_menu.addMenu("Components")
@@ -7009,7 +7152,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 for key, snippet in COMPONENT_SNIPPETS.items():
                     action = QtGui.QAction(snippet.label, self)
                     action.triggered.connect(
-                        lambda checked=False, lib=COMPONENT_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                        lambda checked=False, lib=COMPONENT_SNIPPETS, item_key=key: self.insert_snippet(
+                            lib, item_key)
                     )
                     self.menu_components.addAction(action)
             self.menu_effects = insert_menu.addMenu("Effects")
@@ -7017,18 +7161,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 for key, snippet in EFFECT_SNIPPETS.items():
                     action = QtGui.QAction(snippet.label, self)
                     action.triggered.connect(
-                        lambda checked=False, lib=EFFECT_SNIPPETS, item_key=key: self.insert_snippet(lib, item_key)
+                        lambda checked=False, lib=EFFECT_SNIPPETS, item_key=key: self.insert_snippet(
+                            lib, item_key)
                     )
                     self.menu_effects.addAction(action)
                 self.menu_effects.addSeparator()
                 act_blob = QtGui.QAction("Organic blob", self)
-                act_blob.triggered.connect(lambda checked=False: self.insert_graphic(svg_blob()))
+                act_blob.triggered.connect(
+                    lambda checked=False: self.insert_graphic(svg_blob()))
                 self.menu_effects.addAction(act_blob)
                 act_dots = QtGui.QAction("Dots pattern", self)
-                act_dots.triggered.connect(lambda checked=False: self.insert_graphic(svg_dots()))
+                act_dots.triggered.connect(
+                    lambda checked=False: self.insert_graphic(svg_dots()))
                 self.menu_effects.addAction(act_dots)
                 act_stripes = QtGui.QAction("Diagonal stripes", self)
-                act_stripes.triggered.connect(lambda checked=False: self.insert_graphic(svg_diagonal_stripes()))
+                act_stripes.triggered.connect(
+                    lambda checked=False: self.insert_graphic(svg_diagonal_stripes()))
                 self.menu_effects.addAction(act_stripes)
                 act_banner = QtGui.QAction("Gradient banner", self)
                 act_banner.triggered.connect(
@@ -7040,22 +7188,30 @@ class MainWindow(QtWidgets.QMainWindow):
             self.menu_animation = insert_menu.addMenu("Animation")
             if self.menu_animation is not None:
                 fade_up = QtGui.QAction("Wrap → anim-fade-up", self)
-                fade_up.triggered.connect(lambda checked=False: self.insert_animation_wrapper("anim-fade-up"))
+                fade_up.triggered.connect(
+                    lambda checked=False: self.insert_animation_wrapper("anim-fade-up"))
                 fade_in = QtGui.QAction("Wrap → anim-fade-in", self)
-                fade_in.triggered.connect(lambda checked=False: self.insert_animation_wrapper("anim-fade-in"))
+                fade_in.triggered.connect(
+                    lambda checked=False: self.insert_animation_wrapper("anim-fade-in"))
                 zoom_in = QtGui.QAction("Wrap → anim-zoom-in", self)
-                zoom_in.triggered.connect(lambda checked=False: self.insert_animation_wrapper("anim-zoom-in"))
+                zoom_in.triggered.connect(
+                    lambda checked=False: self.insert_animation_wrapper("anim-zoom-in"))
                 self.menu_animation.addActions([fade_up, fade_in, zoom_in])
                 self.menu_animation.addSeparator()
                 classic_fade = QtGui.QAction("Legacy wrap → Fade in", self)
-                classic_fade.triggered.connect(lambda checked=False: self._apply_motion_wrapper("fade"))
+                classic_fade.triggered.connect(
+                    lambda checked=False: self._apply_motion_wrapper("fade"))
                 classic_zoom = QtGui.QAction("Legacy wrap → Zoom in", self)
-                classic_zoom.triggered.connect(lambda checked=False: self._apply_motion_wrapper("zoom"))
+                classic_zoom.triggered.connect(
+                    lambda checked=False: self._apply_motion_wrapper("zoom"))
                 classic_blur = QtGui.QAction("Legacy wrap → Blur in", self)
-                classic_blur.triggered.connect(lambda checked=False: self._apply_motion_wrapper("blur"))
+                classic_blur.triggered.connect(
+                    lambda checked=False: self._apply_motion_wrapper("blur"))
                 loop_float = QtGui.QAction("Legacy loop → Float", self)
-                loop_float.triggered.connect(lambda checked=False: self._apply_motion_wrapper("float", loop=True))
-                self.menu_animation.addActions([classic_fade, classic_zoom, classic_blur, loop_float])
+                loop_float.triggered.connect(
+                    lambda checked=False: self._apply_motion_wrapper("float", loop=True))
+                self.menu_animation.addActions(
+                    [classic_fade, classic_zoom, classic_blur, loop_float])
 
         m_publish = bar.addMenu("&Publish")
         self.act_publish = QtGui.QAction("Publish…", self)
@@ -7067,17 +7223,24 @@ class MainWindow(QtWidgets.QMainWindow):
         if m_resources is not None:
             def add_link(caption: str, url: str) -> None:
                 act = QtGui.QAction(caption, self)
-                act.triggered.connect(lambda checked=False, link=url: open_url(link))
+                act.triggered.connect(
+                    lambda checked=False, link=url: open_url(link))
                 m_resources.addAction(act)
 
-            add_link("MDN HTML reference", "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference")
-            add_link("MDN CSS reference", "https://developer.mozilla.org/en-US/docs/Web/CSS/Reference")
+            add_link("MDN HTML reference",
+                     "https://developer.mozilla.org/en-US/docs/Web/HTML/Reference")
+            add_link("MDN CSS reference",
+                     "https://developer.mozilla.org/en-US/docs/Web/CSS/Reference")
             add_link("Learn CSS (web.dev)", "https://web.dev/learn/css/")
-            add_link("Flexbox guide (CSS-Tricks)", "https://css-tricks.com/snippets/css/a-guide-to-flexbox/")
+            add_link("Flexbox guide (CSS-Tricks)",
+                     "https://css-tricks.com/snippets/css/a-guide-to-flexbox/")
             add_link("Grid garden (Game)", "https://cssgridgarden.com/")
-            add_link("Accessibility basics (web.dev)", "https://web.dev/learn/accessibility/")
-            add_link("GitHub Pages quickstart", "https://docs.github.com/en/pages/quickstart")
-            add_link("Domain name ideas (LeanDomainSearch)", "https://leandomainsearch.com/")
+            add_link("Accessibility basics (web.dev)",
+                     "https://web.dev/learn/accessibility/")
+            add_link("GitHub Pages quickstart",
+                     "https://docs.github.com/en/pages/quickstart")
+            add_link("Domain name ideas (LeanDomainSearch)",
+                     "https://leandomainsearch.com/")
 
         help_menu = bar.addMenu("&Help")
         self.act_about = QtGui.QAction("About", self)
@@ -7098,29 +7261,41 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_apply_theme.clicked.connect(self.apply_theme)
         self.btn_add_helpers.clicked.connect(self.add_css_helpers)
         self.btn_apply_gradient.clicked.connect(self.apply_gradient_helpers)
-        self.btn_insert_gradient_hero.clicked.connect(self.insert_gradient_hero)
-        self.bg_kind_combo.currentIndexChanged.connect(self._on_background_kind_changed)
-        self.bg_scope_combo.currentIndexChanged.connect(self._on_background_scope_changed)
-        self.bg_pattern_combo.currentTextChanged.connect(self._update_background_pattern_preview)
+        self.btn_insert_gradient_hero.clicked.connect(
+            self.insert_gradient_hero)
+        self.bg_kind_combo.currentIndexChanged.connect(
+            self._on_background_kind_changed)
+        self.bg_scope_combo.currentIndexChanged.connect(
+            self._on_background_scope_changed)
+        self.bg_pattern_combo.currentTextChanged.connect(
+            self._update_background_pattern_preview)
         self.bg_image_browse.clicked.connect(self._browse_background_image)
         self.bg_apply_button.clicked.connect(self._apply_background_from_ui)
         self.bg_reset_button.clicked.connect(self._reset_background_from_ui)
         self.btn_add_asset.clicked.connect(self._browse_assets)
         self.btn_rename_asset.clicked.connect(self._rename_asset)
         self.btn_remove_asset.clicked.connect(self._remove_asset)
-        self.btn_set_cover_image.clicked.connect(self._set_cover_image_from_asset)
-        self.btn_generate_placeholder.clicked.connect(self._generate_placeholder_asset)
+        self.btn_set_cover_image.clicked.connect(
+            self._set_cover_image_from_asset)
+        self.btn_generate_placeholder.clicked.connect(
+            self._generate_placeholder_asset)
         self.btn_insert_image.clicked.connect(self._insert_image_dialog)
-        self.btn_external_add_css.clicked.connect(lambda: self._add_external_asset("css"))
-        self.btn_external_add_js.clicked.connect(lambda: self._add_external_asset("js"))
-        self.btn_external_download.clicked.connect(self._download_external_asset)
-        self.act_new.triggered.connect(lambda: self.maybe_save_before("creating a new project") and self.new_project_bootstrap())
-        self.act_open.triggered.connect(lambda: self.maybe_save_before("opening another project") and self.open_project_dialog())
+        self.btn_external_add_css.clicked.connect(
+            lambda: self._add_external_asset("css"))
+        self.btn_external_add_js.clicked.connect(
+            lambda: self._add_external_asset("js"))
+        self.btn_external_download.clicked.connect(
+            self._download_external_asset)
+        self.act_new.triggered.connect(lambda: self.maybe_save_before(
+            "creating a new project") and self.new_project_bootstrap())
+        self.act_open.triggered.connect(lambda: self.maybe_save_before(
+            "opening another project") and self.open_project_dialog())
         self.act_save.triggered.connect(self.save_project)
         self.act_save_as.triggered.connect(self.save_project_as)
         self.act_export.triggered.connect(self.export_project)
         self.act_quit.triggered.connect(self.close)
-        self.act_start.triggered.connect(lambda: self.controller.show_start_from_main("Recent"))
+        self.act_start.triggered.connect(
+            lambda: self.controller.show_start_from_main("Recent"))
         self.act_about.triggered.connect(self.show_about)
         self.act_get_started.triggered.connect(self._open_help_page)
         self.act_publish.triggered.connect(self.open_publish_dialog)
@@ -7130,21 +7305,33 @@ class MainWindow(QtWidgets.QMainWindow):
         self.design_text.textChanged.connect(self._update_color_swatches)
         self.gradient_from.textChanged.connect(self._update_gradient_preview)
         self.gradient_to.textChanged.connect(self._update_gradient_preview)
-        self.gradient_angle_combo.editTextChanged.connect(self._update_gradient_preview)
+        self.gradient_angle_combo.editTextChanged.connect(
+            self._update_gradient_preview)
         self.radius_spin.valueChanged.connect(self._on_radius_scale_changed)
-        self.shadow_combo.currentTextChanged.connect(self._on_shadow_level_changed)
-        self.motion_enable_scroll.toggled.connect(self._toggle_scroll_animations)
-        self.motion_pref_combo.currentIndexChanged.connect(self._on_motion_pref_changed)
-        self.motion_effect_combo.currentTextChanged.connect(self._on_motion_defaults_changed)
-        self.motion_easing_combo.currentTextChanged.connect(self._on_motion_defaults_changed)
-        self.motion_duration_spin.valueChanged.connect(self._on_motion_defaults_changed)
-        self.motion_delay_spin.valueChanged.connect(self._on_motion_defaults_changed)
-        self.btn_wrap_motion_default.clicked.connect(self.wrap_selection_default_motion)
+        self.shadow_combo.currentTextChanged.connect(
+            self._on_shadow_level_changed)
+        self.motion_enable_scroll.toggled.connect(
+            self._toggle_scroll_animations)
+        self.motion_pref_combo.currentIndexChanged.connect(
+            self._on_motion_pref_changed)
+        self.motion_effect_combo.currentTextChanged.connect(
+            self._on_motion_defaults_changed)
+        self.motion_easing_combo.currentTextChanged.connect(
+            self._on_motion_defaults_changed)
+        self.motion_duration_spin.valueChanged.connect(
+            self._on_motion_defaults_changed)
+        self.motion_delay_spin.valueChanged.connect(
+            self._on_motion_defaults_changed)
+        self.btn_wrap_motion_default.clicked.connect(
+            self.wrap_selection_default_motion)
 
-        self.shortcut_gradient = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+G"), self)
+        self.shortcut_gradient = QtGui.QShortcut(
+            QtGui.QKeySequence("Ctrl+G"), self)
         self.shortcut_gradient.activated.connect(self.apply_gradient_helpers)
-        self.shortcut_motion = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+M"), self)
-        self.shortcut_motion.activated.connect(self.wrap_selection_default_motion)
+        self.shortcut_motion = QtGui.QShortcut(
+            QtGui.QKeySequence("Ctrl+M"), self)
+        self.shortcut_motion.activated.connect(
+            self.wrap_selection_default_motion)
 
     def _load_project_into_ui(self) -> None:
         self._last_cover_palette_hash = ""
@@ -7165,11 +7352,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self._sync_background_css()
         if self.project.pages:
             self.pages_list.setCurrentRow(0)
-        self.design_primary.setText(self.project.palette.get("primary", "#2563eb"))
-        self.design_surface.setText(self.project.palette.get("surface", "#f8fafc"))
+        self.design_primary.setText(
+            self.project.palette.get("primary", "#2563eb"))
+        self.design_surface.setText(
+            self.project.palette.get("surface", "#f8fafc"))
         self.design_text.setText(self.project.palette.get("text", "#0f172a"))
-        self.design_heading_font.setCurrentText(self.project.fonts.get("heading", FONT_STACKS[0]))
-        self.design_body_font.setCurrentText(self.project.fonts.get("body", FONT_STACKS[0]))
+        self.design_heading_font.setCurrentText(
+            self.project.fonts.get("heading", FONT_STACKS[0]))
+        self.design_body_font.setCurrentText(
+            self.project.fonts.get("body", FONT_STACKS[0]))
         self.design_theme_combo.setCurrentText(
             self.project.theme_preset if self.project.theme_preset in THEME_PRESETS else "Custom"
         )
@@ -7177,9 +7368,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.gradient_from.blockSignals(True)
         self.gradient_to.blockSignals(True)
         self.gradient_angle_combo.blockSignals(True)
-        self.gradient_from.setText(gradient.get("from", DEFAULT_GRADIENT["from"]))
+        self.gradient_from.setText(gradient.get(
+            "from", DEFAULT_GRADIENT["from"]))
         self.gradient_to.setText(gradient.get("to", DEFAULT_GRADIENT["to"]))
-        self.gradient_angle_combo.setCurrentText(gradient.get("angle", DEFAULT_GRADIENT["angle"]))
+        self.gradient_angle_combo.setCurrentText(
+            gradient.get("angle", DEFAULT_GRADIENT["angle"]))
         self.gradient_from.blockSignals(False)
         self.gradient_to.blockSignals(False)
         self.gradient_angle_combo.blockSignals(False)
@@ -7191,10 +7384,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.shadow_combo.setCurrentText(shadow_value)
         self.shadow_combo.blockSignals(False)
         self.motion_enable_scroll.blockSignals(True)
-        self.motion_enable_scroll.setChecked(self.project.use_scroll_animations)
+        self.motion_enable_scroll.setChecked(
+            self.project.use_scroll_animations)
         self.motion_enable_scroll.blockSignals(False)
         pref_label = next(
-            (label for label, value in MOTION_PREF_OPTIONS.items() if value == self.project.motion_pref),
+            (label for label, value in MOTION_PREF_OPTIONS.items()
+             if value == self.project.motion_pref),
             "Respect visitor setting",
         )
         self.motion_pref_combo.blockSignals(True)
@@ -7207,14 +7402,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.motion_effect_combo.setCurrentText(effect_value)
         self.motion_effect_combo.blockSignals(False)
         easing_label = next(
-            (label for label, value in MOTION_EASINGS.items() if value == self.project.motion_default_easing),
+            (label for label, value in MOTION_EASINGS.items()
+             if value == self.project.motion_default_easing),
             "Gentle ease",
         )
         self.motion_easing_combo.blockSignals(True)
         self.motion_easing_combo.setCurrentText(easing_label)
         self.motion_easing_combo.blockSignals(False)
         self.motion_duration_spin.blockSignals(True)
-        self.motion_duration_spin.setValue(int(self.project.motion_default_duration))
+        self.motion_duration_spin.setValue(
+            int(self.project.motion_default_duration))
         self.motion_duration_spin.blockSignals(False)
         self.motion_delay_spin.blockSignals(True)
         self.motion_delay_spin.setValue(int(self.project.motion_default_delay))
@@ -7244,7 +7441,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         template_key = selection.template_key
         site_name = selection.project_name
-        spec = PROJECT_TEMPLATES.get(template_key, PROJECT_TEMPLATES["starter"])
+        spec = PROJECT_TEMPLATES.get(
+            template_key, PROJECT_TEMPLATES["starter"])
         palette = dict(spec.palette or DEFAULT_PALETTE)
         palette.update(selection.palette)
         fonts = dict(spec.fonts or DEFAULT_FONTS)
@@ -7256,7 +7454,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if spec.extra_css.strip():
             css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, spec.extra_css)
         pages = [
-            Page(filename=filename, title=title, html=html.replace("{{SITE_NAME}}", site_name))
+            Page(filename=filename, title=title,
+                 html=html.replace("{{SITE_NAME}}", site_name))
             for filename, title, html in spec.pages
         ]
         project = Project(
@@ -7291,7 +7490,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 new_filename = f"{base}-{counter}.html"
                 counter += 1
             filename = new_filename
-        self.project.pages.append(Page(filename=filename, title=title, html=html))
+        self.project.pages.append(
+            Page(filename=filename, title=title, html=html))
         self._refresh_pages_list()
         self.pages_list.setCurrentRow(len(self.project.pages) - 1)
         self.html_editor.blockSignals(True)
@@ -7307,7 +7507,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         page = self.project.pages[row]
         if page.filename == "index.html":
-            QtWidgets.QMessageBox.warning(self, "Not allowed", "Home cannot be removed.")
+            QtWidgets.QMessageBox.warning(
+                self, "Not allowed", "Home cannot be removed.")
             return
         if QtWidgets.QMessageBox.question(
             self,
@@ -7325,7 +7526,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.project or index < 0 or index >= len(self.project.pages):
             return
         previous = self._current_page_index
-        self._flush_row_override = previous if previous not in (-1, index) else None
+        self._flush_row_override = previous if previous not in (
+            -1, index) else None
         self._flush_editors_to_model()
         page = self.project.pages[index]
         self.html_editor.blockSignals(True)
@@ -7381,10 +7583,12 @@ class MainWindow(QtWidgets.QMainWindow):
             "cover_asset": self.project.cover_asset_name or "",
             "template": self.project.template_key,
         }
-        palette_hash = hashlib.sha1(json.dumps(palette_payload, sort_keys=True).encode("utf-8")).hexdigest()
+        palette_hash = hashlib.sha1(json.dumps(
+            palette_payload, sort_keys=True).encode("utf-8")).hexdigest()
         first_html = self.project.pages[0].html if self.project.pages else ""
         css = self.project.css or ""
-        content_hash = hashlib.sha1((first_html + "\n---\n" + css).encode("utf-8")).hexdigest()
+        content_hash = hashlib.sha1(
+            (first_html + "\n---\n" + css).encode("utf-8")).hexdigest()
         return palette_hash, content_hash
 
     def _maybe_render_cover(self, *, force: bool = False) -> None:
@@ -7394,9 +7598,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if not force and palette_hash == self._last_cover_palette_hash and content_hash == self._last_cover_content_hash:
             return
         thumb = write_project_thumbnail(self.project, self.project_path)
-        tile_path = Path(self.project.cover_tile_path) if self.project.cover_tile_path else thumb
+        tile_path = Path(
+            self.project.cover_tile_path) if self.project.cover_tile_path else thumb
         if self.project_path and self.project.cover_path:
-            self.recents.set_cover(self.project_path, Path(self.project.cover_path), tile_path=tile_path)
+            self.recents.set_cover(self.project_path, Path(
+                self.project.cover_path), tile_path=tile_path)
         elif self.project_path and tile_path:
             self.recents.set_thumbnail(self.project_path, tile_path)
         self._last_cover_palette_hash = palette_hash
@@ -7440,7 +7646,8 @@ class MainWindow(QtWidgets.QMainWindow):
         cursor = self.html_editor.textCursor()
         selected = cursor.selectedText().replace("\u2029", "\n")
         if selected:
-            cursor.insertText(f"<div class=\"{class_name}\">\n{selected}\n</div>")
+            cursor.insertText(
+                f"<div class=\"{class_name}\">\n{selected}\n</div>")
         else:
             cursor.insertText(
                 f"\n<div class=\"{class_name}\">\n  <p>Add animated content here.</p>\n</div>\n"
@@ -7512,7 +7719,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _strip_background_blocks(self, css: str) -> str:
         pattern = re.compile(
-            re.escape(BACKGROUND_BLOCK_START) + r".*?" + re.escape(BACKGROUND_BLOCK_END), re.S
+            re.escape(BACKGROUND_BLOCK_START) + r".*?" +
+            re.escape(BACKGROUND_BLOCK_END), re.S
         )
         cleaned = re.sub(pattern, "", css)
         return cleaned.strip()
@@ -7520,10 +7728,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def _sync_background_css(self) -> None:
         css = self.css_editor.toPlainText()
         css = self._strip_background_blocks(css)
-        blocks = [self._build_background_block(spec) for spec in self.project.backgrounds]
+        blocks = [self._build_background_block(
+            spec) for spec in self.project.backgrounds]
         blocks = [block for block in blocks if block]
         if blocks:
-            combined = f"{BACKGROUND_BLOCK_START}\n" + "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
+            combined = f"{BACKGROUND_BLOCK_START}\n" + \
+                "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
             css = (css + "\n\n" + combined).strip() if css else combined
         self.css_editor.blockSignals(True)
         self.css_editor.setPlainText(css)
@@ -7554,7 +7764,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 position = value.get("position", "center")
                 size = value.get("size", "cover")
                 repeat = "no-repeat"
-                fixed_line = "\nbody { background-attachment: fixed; }" if value.get("fixed") == "1" else ""
+                fixed_line = "\nbody { background-attachment: fixed; }" if value.get(
+                    "fixed") == "1" else ""
                 return (
                     f"{BACKGROUND_COMMENT_PREFIX} (site/image) */\n"
                     f"body {{ background-image: url('assets/images/{filename}'); }}\n"
@@ -7573,7 +7784,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 )
             return None
 
-        class_name = value.get("class") or f"page-bg-{slugify(value.get('page', 'section'))}"
+        class_name = value.get(
+            "class") or f"page-bg-{slugify(value.get('page', 'section'))}"
         if kind == "solid":
             color = value.get("color", "#0f172a")
             return f"{BACKGROUND_COMMENT_PREFIX} (page/solid) */\n.{class_name} {{ background: {color}; }}"
@@ -7598,7 +7810,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 f".{class_name} {{ background-position:{position}; background-size:{size}; background-repeat:{repeat}; }}",
             ]
             if value.get("fixed") == "1":
-                lines.append(f".{class_name}.bg-fixed {{ background-attachment: fixed; }}")
+                lines.append(
+                    f".{class_name}.bg-fixed {{ background-attachment: fixed; }}")
             return "\n".join(lines)
         if kind == "pattern":
             svg = value.get("svg", "")
@@ -7618,7 +7831,8 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self._current_page()
         page_filename = page.filename if page else None
         if scope == "page" and not page_filename:
-            QtWidgets.QMessageBox.information(self, "Select a page", "Choose a page before applying a page background.")
+            QtWidgets.QMessageBox.information(
+                self, "Select a page", "Choose a page before applying a page background.")
             return
         kind = self._background_kind_value()
         value: Dict[str, str] = {}
@@ -7631,7 +7845,8 @@ class MainWindow(QtWidgets.QMainWindow):
         elif kind == "image":
             path_str = self.bg_image_path.text().strip()
             if not path_str:
-                QtWidgets.QMessageBox.warning(self, "Choose an image", "Select an image to use as the background.")
+                QtWidgets.QMessageBox.warning(
+                    self, "Choose an image", "Select an image to use as the background.")
                 return
             path = Path(path_str)
             asset_name = self._ensure_background_image_asset(path)
@@ -7645,7 +7860,8 @@ class MainWindow(QtWidgets.QMainWindow):
             pattern_name = self.bg_pattern_combo.currentText()
             svg = BACKGROUND_PATTERN_PRESETS.get(pattern_name, "")
             if not svg:
-                QtWidgets.QMessageBox.warning(self, "Pattern unavailable", "Choose a different pattern preset.")
+                QtWidgets.QMessageBox.warning(
+                    self, "Pattern unavailable", "Choose a different pattern preset.")
                 return
             value["pattern"] = pattern_name
             value["svg"] = svg
@@ -7673,10 +7889,12 @@ class MainWindow(QtWidgets.QMainWindow):
         page = self._current_page()
         page_filename = page.filename if page else None
         if scope == "page" and not page_filename:
-            QtWidgets.QMessageBox.information(self, "Select a page", "Choose a page to reset its background.")
+            QtWidgets.QMessageBox.information(
+                self, "Select a page", "Choose a page to reset its background.")
             return
         if not self._remove_background_spec(scope, page_filename):
-            QtWidgets.QMessageBox.information(self, "Nothing to reset", "No background was set for this scope.")
+            QtWidgets.QMessageBox.information(
+                self, "Nothing to reset", "No background was set for this scope.")
             return
         self._sync_background_css()
         self.set_dirty(True)
@@ -7697,7 +7915,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_background_pattern_preview(self) -> None:
         if getattr(self, "bg_pattern_preview", None) is None:
             return
-        pattern_name = self.bg_pattern_combo.currentText() if self.bg_pattern_combo is not None else ""
+        pattern_name = self.bg_pattern_combo.currentText(
+        ) if self.bg_pattern_combo is not None else ""
         svg = BACKGROUND_PATTERN_PRESETS.get(pattern_name, "")
         if not svg:
             self.bg_pattern_preview.setText("Pattern preview")
@@ -7727,7 +7946,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _ensure_background_image_asset(self, path: Path) -> Optional[str]:
         if not path.exists():
-            QtWidgets.QMessageBox.warning(self, "Missing file", f"Could not find {path}.")
+            QtWidgets.QMessageBox.warning(
+                self, "Missing file", f"Could not find {path}.")
             return None
         asset = self._asset_from_file(path)
         if asset is None:
@@ -7738,7 +7958,8 @@ class MainWindow(QtWidgets.QMainWindow):
         asset.name = self._unique_asset_name(asset.name)
         self.project.images.append(asset)
         self._refresh_assets()
-        self.status_bar.showMessage(f"Added background image {asset.name}", 2000)
+        self.status_bar.showMessage(
+            f"Added background image {asset.name}", 2000)
         return asset.name
 
     def _insert_background_markup(self, spec: BackgroundSpec) -> None:
@@ -7788,28 +8009,36 @@ class MainWindow(QtWidgets.QMainWindow):
         self.bg_stack.setCurrentIndex(kind_index)
 
         if spec and spec.kind == "solid":
-            self.bg_solid_color.setColor(spec.value.get("color", self.project.palette.get("surface", "#0f172a")))
+            self.bg_solid_color.setColor(spec.value.get(
+                "color", self.project.palette.get("surface", "#0f172a")))
         else:
             default_solid = self.project.palette.get("surface", "#f8fafc")
             self.bg_solid_color.setColor(default_solid)
 
         if spec and spec.kind == "gradient":
-            self.bg_gradient_from.setColor(spec.value.get("from", DEFAULT_GRADIENT["from"]))
-            self.bg_gradient_to.setColor(spec.value.get("to", DEFAULT_GRADIENT["to"]))
-            angle_val = spec.value.get("angle", DEFAULT_GRADIENT["angle"]).replace("deg", "")
+            self.bg_gradient_from.setColor(
+                spec.value.get("from", DEFAULT_GRADIENT["from"]))
+            self.bg_gradient_to.setColor(
+                spec.value.get("to", DEFAULT_GRADIENT["to"]))
+            angle_val = spec.value.get(
+                "angle", DEFAULT_GRADIENT["angle"]).replace("deg", "")
             try:
                 self.bg_gradient_angle.setValue(int(float(angle_val)))
             except ValueError:
-                self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
+                self.bg_gradient_angle.setValue(
+                    int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
         else:
             self.bg_gradient_from.setColor(DEFAULT_GRADIENT["from"])
             self.bg_gradient_to.setColor(DEFAULT_GRADIENT["to"])
-            self.bg_gradient_angle.setValue(int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
+            self.bg_gradient_angle.setValue(
+                int(DEFAULT_GRADIENT["angle"].replace("deg", "")))
 
         if spec and spec.kind == "image":
             self.bg_image_path.setText(spec.value.get("file", ""))
-            self.bg_image_position_combo.setCurrentText(spec.value.get("position", "center"))
-            self.bg_image_size_combo.setCurrentText(spec.value.get("size", "cover"))
+            self.bg_image_position_combo.setCurrentText(
+                spec.value.get("position", "center"))
+            self.bg_image_size_combo.setCurrentText(
+                spec.value.get("size", "cover"))
             self.bg_image_fixed.setChecked(spec.value.get("fixed") == "1")
         else:
             self.bg_image_path.clear()
@@ -7838,10 +8067,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.project:
             return ""
         current_css = self.css_editor.toPlainText()
-        helper_block = helper_override or extract_css_block(current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
+        helper_block = helper_override or extract_css_block(
+            current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
         extra_block = extra_override
         if extra_block is None:
-            extra_block = extract_css_block(current_css, TEMPLATE_EXTRA_SENTINEL)
+            extra_block = extract_css_block(
+                current_css, TEMPLATE_EXTRA_SENTINEL)
         base_css = generate_base_css(
             self.project.palette,
             self.project.fonts,
@@ -7850,16 +8081,21 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         css = ensure_block(base_css, CSS_HELPERS_SENTINEL, helper_block)
         css = ensure_block(css, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
-        css = ensure_block(css, GRADIENT_HELPERS_SENTINEL, gradient_helpers_block(self.project.gradients))
-        css = ensure_block(css, ANIM_HELPERS_SENTINEL, animation_helpers_block(self.project.motion_pref))
+        css = ensure_block(css, GRADIENT_HELPERS_SENTINEL,
+                           gradient_helpers_block(self.project.gradients))
+        css = ensure_block(css, ANIM_HELPERS_SENTINEL,
+                           animation_helpers_block(self.project.motion_pref))
         if extra_block:
-            css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL, f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
+            css = ensure_block(css, TEMPLATE_EXTRA_SENTINEL,
+                               f"{TEMPLATE_EXTRA_SENTINEL}\n{extra_block}")
         css = self._strip_background_blocks(css)
         if self.project.backgrounds:
-            blocks = [self._build_background_block(spec) for spec in self.project.backgrounds]
+            blocks = [self._build_background_block(
+                spec) for spec in self.project.backgrounds]
             blocks = [block for block in blocks if block]
             if blocks:
-                combined = f"{BACKGROUND_BLOCK_START}\n" + "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
+                combined = f"{BACKGROUND_BLOCK_START}\n" + \
+                    "\n\n".join(blocks) + f"\n{BACKGROUND_BLOCK_END}"
                 css = (css + "\n\n" + combined).strip() if css else combined
         return css
 
@@ -7877,8 +8113,10 @@ class MainWindow(QtWidgets.QMainWindow):
         }
         theme = self.design_theme_combo.currentText()
         current_css = self.css_editor.toPlainText()
-        helper_block = extract_css_block(current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
-        existing_extra = extract_css_block(current_css, TEMPLATE_EXTRA_SENTINEL)
+        helper_block = extract_css_block(
+            current_css, CSS_HELPERS_SENTINEL) or CSS_HELPERS_BLOCK
+        existing_extra = extract_css_block(
+            current_css, TEMPLATE_EXTRA_SENTINEL)
         clean_extra = strip_theme_extras(existing_extra)
         style = THEME_STYLE_PRESETS.get(theme)
         if theme in THEME_PRESETS:
@@ -7890,10 +8128,13 @@ class MainWindow(QtWidgets.QMainWindow):
             fonts = style.get("fonts", fonts)
             gradient_info = style.get("gradients")
             if isinstance(gradient_info, dict):
-                grad_from = str(gradient_info.get("from", DEFAULT_GRADIENT["from"]))
+                grad_from = str(gradient_info.get(
+                    "from", DEFAULT_GRADIENT["from"]))
                 grad_to = str(gradient_info.get("to", DEFAULT_GRADIENT["to"]))
-                grad_angle = str(gradient_info.get("angle", DEFAULT_GRADIENT["angle"]))
-                self.project.gradients = {"from": grad_from, "to": grad_to, "angle": grad_angle}
+                grad_angle = str(gradient_info.get(
+                    "angle", DEFAULT_GRADIENT["angle"]))
+                self.project.gradients = {
+                    "from": grad_from, "to": grad_to, "angle": grad_angle}
                 self.gradient_from.blockSignals(True)
                 self.gradient_to.blockSignals(True)
                 self.gradient_angle_combo.blockSignals(True)
@@ -7925,7 +8166,8 @@ class MainWindow(QtWidgets.QMainWindow):
             extra_css = str(style.get("extra_css", "")).strip()
             clean_extra = clean_extra.strip()
             if extra_css:
-                clean_extra = f"{clean_extra}\n\n{extra_css}".strip() if clean_extra else extra_css
+                clean_extra = f"{clean_extra}\n\n{extra_css}".strip(
+                ) if clean_extra else extra_css
         self.project.palette = palette
         if not isinstance(fonts, dict):
             fonts = {"heading": str(fonts), "body": str(fonts)}
@@ -7933,7 +8175,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project.theme_preset = theme
         self.design_heading_font.setCurrentText(fonts.get("heading", ""))
         self.design_body_font.setCurrentText(fonts.get("body", ""))
-        css = self._compose_css(extra_override=clean_extra or None, helper_override=helper_block)
+        css = self._compose_css(
+            extra_override=clean_extra or None, helper_override=helper_block)
         self.css_editor.setPlainText(css)
         self.project.css = css
         self._update_color_swatches()
@@ -7947,7 +8190,8 @@ class MainWindow(QtWidgets.QMainWindow):
         updated = ensure_block(css, CSS_HELPERS_SENTINEL, CSS_HELPERS_BLOCK)
         updated = ensure_block(updated, BG_HELPERS_SENTINEL, BG_HELPERS_BLOCK)
         if updated == css:
-            QtWidgets.QMessageBox.information(self, "Already added", "CSS helpers are already in your stylesheet.")
+            QtWidgets.QMessageBox.information(
+                self, "Already added", "CSS helpers are already in your stylesheet.")
             return
         self.css_editor.setPlainText(updated)
         self.project.css = updated
@@ -7957,10 +8201,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def apply_gradient_helpers(self) -> None:
         if not self.project:
             return
-        grad_from = self.gradient_from.text().strip() or DEFAULT_GRADIENT["from"]
+        grad_from = self.gradient_from.text(
+        ).strip() or DEFAULT_GRADIENT["from"]
         grad_to = self.gradient_to.text().strip() or DEFAULT_GRADIENT["to"]
-        grad_angle = self.gradient_angle_combo.currentText().strip() or DEFAULT_GRADIENT["angle"]
-        self.project.gradients = {"from": grad_from, "to": grad_to, "angle": grad_angle}
+        grad_angle = self.gradient_angle_combo.currentText(
+        ).strip() or DEFAULT_GRADIENT["angle"]
+        self.project.gradients = {"from": grad_from,
+                                  "to": grad_to, "angle": grad_angle}
         css = self._compose_css()
         self.css_editor.setPlainText(css)
         self.project.css = css
@@ -7974,7 +8221,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         cursor = self.html_editor.textCursor()
         if cursor.hasSelection():
-            self.wrap_selection_with('<section class="hero bg-gradient text-on-gradient">\n', '\n</section>')
+            self.wrap_selection_with(
+                '<section class="hero bg-gradient text-on-gradient">\n', '\n</section>')
         else:
             snippet = """\n\n<section class="hero bg-gradient text-on-gradient">\n  <h2>Gradient hero</h2>\n  <p>Add your pitch here.</p>\n  <a class="btn btn-gradient" href="#">Call to action</a>\n</section>\n\n"""
             cursor.insertText(snippet)
@@ -7988,14 +8236,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"background: {color}; border: 1px solid rgba(148,163,184,0.6); border-radius: 4px;"
             )
 
-        set_swatch(self.primary_swatch, self.design_primary.text().strip() or DEFAULT_PALETTE["primary"])
-        set_swatch(self.surface_swatch, self.design_surface.text().strip() or DEFAULT_PALETTE["surface"])
-        set_swatch(self.text_swatch, self.design_text.text().strip() or DEFAULT_PALETTE["text"])
+        set_swatch(self.primary_swatch, self.design_primary.text(
+        ).strip() or DEFAULT_PALETTE["primary"])
+        set_swatch(self.surface_swatch, self.design_surface.text(
+        ).strip() or DEFAULT_PALETTE["surface"])
+        set_swatch(self.text_swatch, self.design_text.text().strip()
+                   or DEFAULT_PALETTE["text"])
 
     def _update_gradient_preview(self) -> None:
-        grad_from = self.gradient_from.text().strip() or DEFAULT_GRADIENT["from"]
+        grad_from = self.gradient_from.text(
+        ).strip() or DEFAULT_GRADIENT["from"]
         grad_to = self.gradient_to.text().strip() or DEFAULT_GRADIENT["to"]
-        grad_angle = self.gradient_angle_combo.currentText().strip() or DEFAULT_GRADIENT["angle"]
+        grad_angle = self.gradient_angle_combo.currentText(
+        ).strip() or DEFAULT_GRADIENT["angle"]
         self.gradient_preview.setStyleSheet(
             f"background: linear-gradient({grad_angle}, {grad_from}, {grad_to});"
             " border: 1px solid rgba(148,163,184,0.6); border-radius: 4px;"
@@ -8050,10 +8303,12 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         effect = self.motion_effect_combo.currentText() or "none"
         easing_label = self.motion_easing_combo.currentText()
-        easing = MOTION_EASINGS.get(easing_label, MOTION_EASINGS["Gentle ease"])
+        easing = MOTION_EASINGS.get(
+            easing_label, MOTION_EASINGS["Gentle ease"])
         self.project.motion_default_effect = effect
         self.project.motion_default_easing = easing
-        self.project.motion_default_duration = int(self.motion_duration_spin.value())
+        self.project.motion_default_duration = int(
+            self.motion_duration_spin.value())
         self.project.motion_default_delay = int(self.motion_delay_spin.value())
         self.set_dirty(True)
 
@@ -8109,11 +8364,13 @@ class MainWindow(QtWidgets.QMainWindow):
             table.insertRow(row)
             kind_text = asset.kind.upper() if asset.kind else "CSS"
             kind_item = QtWidgets.QTableWidgetItem(kind_text)
-            kind_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            kind_item.setFlags(Qt.ItemFlag.ItemIsSelectable |
+                               Qt.ItemFlag.ItemIsEnabled)
             table.setItem(row, 0, kind_item)
             mode_label = "Local" if asset.mode == "local" else "CDN"
             mode_item = QtWidgets.QTableWidgetItem(mode_label)
-            mode_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            mode_item.setFlags(Qt.ItemFlag.ItemIsSelectable |
+                               Qt.ItemFlag.ItemIsEnabled)
             table.setItem(row, 1, mode_item)
             href_display = asset.href
             if asset.mode == "local" and asset.original_url:
@@ -8121,10 +8378,12 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 tooltip = asset.href
             url_item = QtWidgets.QTableWidgetItem(href_display)
-            url_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            url_item.setFlags(Qt.ItemFlag.ItemIsSelectable |
+                              Qt.ItemFlag.ItemIsEnabled)
             url_item.setToolTip(tooltip)
             table.setItem(row, 2, url_item)
-            table.setCellWidget(row, 3, self._create_external_action_widget(row, total))
+            table.setCellWidget(
+                row, 3, self._create_external_action_widget(row, total))
         table.blockSignals(False)
         if select_row is not None and 0 <= select_row < table.rowCount():
             table.selectRow(select_row)
@@ -8139,28 +8398,34 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_up = QtWidgets.QToolButton(container)
         style = self.style()
         if style is not None:
-            btn_up.setIcon(style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowUp))
+            btn_up.setIcon(style.standardIcon(
+                QtWidgets.QStyle.StandardPixmap.SP_ArrowUp))
         btn_up.setToolTip("Move up")
         btn_up.setAutoRaise(True)
         btn_up.setEnabled(row > 0)
-        btn_up.clicked.connect(lambda checked=False, r=row: self._move_external_asset(r, -1))
+        btn_up.clicked.connect(lambda checked=False,
+                               r=row: self._move_external_asset(r, -1))
         layout.addWidget(btn_up)
         btn_down = QtWidgets.QToolButton(container)
         style = self.style()
         if style is not None:
-            btn_down.setIcon(style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_ArrowDown))
+            btn_down.setIcon(style.standardIcon(
+                QtWidgets.QStyle.StandardPixmap.SP_ArrowDown))
         btn_down.setToolTip("Move down")
         btn_down.setAutoRaise(True)
         btn_down.setEnabled(row < total_rows - 1)
-        btn_down.clicked.connect(lambda checked=False, r=row: self._move_external_asset(r, 1))
+        btn_down.clicked.connect(lambda checked=False,
+                                 r=row: self._move_external_asset(r, 1))
         layout.addWidget(btn_down)
         btn_remove = QtWidgets.QToolButton(container)
         style = self.style()
         if style is not None:
-            btn_remove.setIcon(style.standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DialogCloseButton))
+            btn_remove.setIcon(style.standardIcon(
+                QtWidgets.QStyle.StandardPixmap.SP_DialogCloseButton))
         btn_remove.setToolTip("Remove")
         btn_remove.setAutoRaise(True)
-        btn_remove.clicked.connect(lambda checked=False, r=row: self._remove_external_asset(r))
+        btn_remove.clicked.connect(
+            lambda checked=False, r=row: self._remove_external_asset(r))
         layout.addWidget(btn_remove)
         layout.addStretch()
         return container
@@ -8182,18 +8447,22 @@ class MainWindow(QtWidgets.QMainWindow):
                 url = "https:" + url
                 parsed = urllib.parse.urlparse(url)
             else:
-                QtWidgets.QMessageBox.warning(self, "Invalid URL", "Enter a full https:// URL.")
+                QtWidgets.QMessageBox.warning(
+                    self, "Invalid URL", "Enter a full https:// URL.")
                 return
         if parsed.scheme not in {"http", "https"}:
-            QtWidgets.QMessageBox.warning(self, "Unsupported scheme", "Only HTTP and HTTPS URLs are supported.")
+            QtWidgets.QMessageBox.warning(
+                self, "Unsupported scheme", "Only HTTP and HTTPS URLs are supported.")
             return
         canonical = url
         for existing in self.project.external:
             source = existing.original_url if existing.mode == "local" and existing.original_url else existing.href
             if existing.kind == kind and source == canonical:
-                QtWidgets.QMessageBox.information(self, "Already added", "This asset is already in your list.")
+                QtWidgets.QMessageBox.information(
+                    self, "Already added", "This asset is already in your list.")
                 return
-        asset = ExternalAsset(kind=kind, mode="cdn", href=canonical, original_url=canonical)
+        asset = ExternalAsset(kind=kind, mode="cdn",
+                              href=canonical, original_url=canonical)
         self.project.external.append(asset)
         self._refresh_external_assets_table(len(self.project.external) - 1)
         self.set_dirty(True)
@@ -8203,7 +8472,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _selected_external_rows(self) -> List[int]:
         if getattr(self, "external_table", None) is None:
             return []
-        selection_model = cast(Optional[QtCore.QItemSelectionModel], self.external_table.selectionModel())
+        selection_model = cast(
+            Optional[QtCore.QItemSelectionModel], self.external_table.selectionModel())
         if selection_model is None:
             return []
         return sorted({index.row() for index in selection_model.selectedRows()})
@@ -8240,7 +8510,8 @@ class MainWindow(QtWidgets.QMainWindow):
         ):
             return
         del self.project.external[row]
-        next_row = min(row, len(self.project.external) - 1) if self.project.external else None
+        next_row = min(row, len(self.project.external) -
+                       1) if self.project.external else None
         self._refresh_external_assets_table(next_row)
         self.set_dirty(True)
         self.update_preview()
@@ -8248,11 +8519,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _download_external_asset(self) -> None:
         if not self.project or not self.project.external:
-            QtWidgets.QMessageBox.information(self, "No assets", "Add an external link first.")
+            QtWidgets.QMessageBox.information(
+                self, "No assets", "Add an external link first.")
             return
         rows = self._selected_external_rows()
         if not rows:
-            QtWidgets.QMessageBox.information(self, "Select asset", "Choose an external link to download.")
+            QtWidgets.QMessageBox.information(
+                self, "Select asset", "Choose an external link to download.")
             return
         changed = False
         errors: List[str] = []
@@ -8270,14 +8543,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if changed:
             self.set_dirty(True)
             self.update_preview()
-            self.status_bar.showMessage("Downloaded external assets for offline use", 3000)
+            self.status_bar.showMessage(
+                "Downloaded external assets for offline use", 3000)
         if errors:
             summary = "\n".join(errors[:3])
             if len(errors) > 3:
                 summary += "\n…"
             QtWidgets.QMessageBox.warning(self, "Download issues", summary)
         if not changed and not errors:
-            QtWidgets.QMessageBox.information(self, "Nothing to download", "The selected assets are already local.")
+            QtWidgets.QMessageBox.information(
+                self, "Nothing to download", "The selected assets are already local.")
 
     def _download_external_row(self, row: int) -> Tuple[bool, Optional[str]]:
         if not self.project or row < 0 or row >= len(self.project.external):
@@ -8296,7 +8571,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return False, f"{url}: {exc}"
         if not data:
             return False, f"{url}: empty response"
-        filename = self._unique_external_filename(Path(urllib.parse.urlparse(url).path).name or url, asset.kind, row)
+        filename = self._unique_external_filename(
+            Path(urllib.parse.urlparse(url).path).name or url, asset.kind, row)
         rel_path = Path("assets") / "vendor" / filename
         asset.original_url = asset.original_url or url
         asset.mode = "local"
@@ -8332,7 +8608,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _refresh_assets(self) -> None:
         self.asset_list.clear()
         for asset in self.project.images:
-            item = QtWidgets.QListWidgetItem(f"{asset.name} ({asset.width}×{asset.height})")
+            item = QtWidgets.QListWidgetItem(
+                f"{asset.name} ({asset.width}×{asset.height})")
             item.setData(Qt.ItemDataRole.UserRole, asset)
             self.asset_list.addItem(item)
 
@@ -8367,7 +8644,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return None
         image = QtGui.QImage(str(path))
         if image.isNull():
-            QtWidgets.QMessageBox.warning(self, "Unsupported", f"Could not load {path.name}.")
+            QtWidgets.QMessageBox.warning(
+                self, "Unsupported", f"Could not load {path.name}.")
             return None
         buffer = QtCore.QBuffer()
         buffer.open(QtCore.QIODevice.OpenModeFlag.WriteOnly)
@@ -8383,7 +8661,8 @@ class MainWindow(QtWidgets.QMainWindow):
         return AssetImage(name=path.name, data_base64=data, width=image.width(), height=image.height(), mime=mime)
 
     def _unique_asset_name(self, name: str, exclude: Optional[str] = None) -> str:
-        existing = {asset.name for asset in self.project.images if asset.name != exclude}
+        existing = {
+            asset.name for asset in self.project.images if asset.name != exclude}
         if name not in existing:
             return name
         base = Path(name).stem
@@ -8404,7 +8683,8 @@ class MainWindow(QtWidgets.QMainWindow):
         data = base64.b64decode(asset.data_base64.encode("ascii"))
         pixmap = QtGui.QPixmap()
         pixmap.loadFromData(data)
-        scaled = pixmap.scaled(240, 160, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        scaled = pixmap.scaled(240, 160, Qt.AspectRatioMode.KeepAspectRatio,
+                               Qt.TransformationMode.SmoothTransformation)
         self.asset_preview.setPixmap(scaled)
 
     def _rename_asset(self) -> None:
@@ -8412,10 +8692,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if row < 0 or row >= len(self.project.images):
             return
         asset = self.project.images[row]
-        new_name, ok = QtWidgets.QInputDialog.getText(self, "Rename asset", "File name", text=asset.name)
+        new_name, ok = QtWidgets.QInputDialog.getText(
+            self, "Rename asset", "File name", text=asset.name)
         if not ok or not new_name.strip():
             return
-        new_name = self._unique_asset_name(new_name.strip(), exclude=asset.name)
+        new_name = self._unique_asset_name(
+            new_name.strip(), exclude=asset.name)
         asset.name = new_name
         self._refresh_assets()
         self.set_dirty(True)
@@ -8435,16 +8717,20 @@ class MainWindow(QtWidgets.QMainWindow):
     def _insert_image_dialog(self) -> None:
         row = self.asset_list.currentRow()
         if row < 0 or row >= len(self.project.images):
-            QtWidgets.QMessageBox.information(self, "Select image", "Choose an image first.")
+            QtWidgets.QMessageBox.information(
+                self, "Select image", "Choose an image first.")
             return
         asset = self.project.images[row]
-        alt, ok = QtWidgets.QInputDialog.getText(self, "Alt text", "Describe the image", text="")
+        alt, ok = QtWidgets.QInputDialog.getText(
+            self, "Alt text", "Describe the image", text="")
         if not ok:
             return
-        width, ok_w = QtWidgets.QInputDialog.getInt(self, "Width", "Width (px)", value=max(1, asset.width), min=1)
+        width, ok_w = QtWidgets.QInputDialog.getInt(
+            self, "Width", "Width (px)", value=max(1, asset.width), min=1)
         if not ok_w:
             return
-        height, ok_h = QtWidgets.QInputDialog.getInt(self, "Height", "Height (px)", value=max(1, asset.height), min=1)
+        height, ok_h = QtWidgets.QInputDialog.getInt(
+            self, "Height", "Height (px)", value=max(1, asset.height), min=1)
         if not ok_h:
             return
         html = (
@@ -8461,7 +8747,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         row = self.asset_list.currentRow()
         if row < 0 or row >= len(self.project.images):
-            QtWidgets.QMessageBox.information(self, "Select image", "Choose an image to use as the cover.")
+            QtWidgets.QMessageBox.information(
+                self, "Select image", "Choose an image to use as the cover.")
             return
         asset = self.project.images[row]
         self.project.cover_asset_name = asset.name
@@ -8490,21 +8777,26 @@ class MainWindow(QtWidgets.QMainWindow):
             except (ValueError, IndexError):
                 width, height = 1280, 720
         else:
-            width, ok_w = QtWidgets.QInputDialog.getInt(self, "Width", "Placeholder width (px)", value=1280, min=100, max=4000)
+            width, ok_w = QtWidgets.QInputDialog.getInt(
+                self, "Width", "Placeholder width (px)", value=1280, min=100, max=4000)
             if not ok_w:
                 return
-            height, ok_h = QtWidgets.QInputDialog.getInt(self, "Height", "Placeholder height (px)", value=720, min=100, max=4000)
+            height, ok_h = QtWidgets.QInputDialog.getInt(
+                self, "Height", "Placeholder height (px)", value=720, min=100, max=4000)
             if not ok_h:
                 return
         svg = generate_svg_placeholder(width, height, self.project.palette)
         data = base64.b64encode(svg.encode("utf-8")).decode("ascii")
         name = self._unique_asset_name(f"placeholder-{width}x{height}.svg")
-        asset = AssetImage(name=name, data_base64=data, width=width, height=height, mime="image/svg+xml")
+        asset = AssetImage(name=name, data_base64=data,
+                           width=width, height=height, mime="image/svg+xml")
         self.project.images.append(asset)
         self._refresh_assets()
         self.set_dirty(True)
-        self.status_bar.showMessage(f"Placeholder {width}×{height} added", 4000)
-        data_uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+        self.status_bar.showMessage(
+            f"Placeholder {width}×{height} added", 4000)
+        data_uri = "data:image/svg+xml;base64," + \
+            base64.b64encode(svg.encode("utf-8")).decode("ascii")
         clipboard = QtWidgets.QApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(data_uri)
@@ -8525,22 +8817,26 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             result = load_project(Path(path))
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Could not open project:\n{exc}")
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"Could not open project:\n{exc}")
             return
         self.project = result.project
         self.project_path = Path(path)
         self.project.output_dir = str(self.project_path.parent)
         if result.migrated:
-            QtWidgets.QMessageBox.information(self, "Upgraded", "Project upgraded to the latest format.")
+            QtWidgets.QMessageBox.information(
+                self, "Upgraded", "Project upgraded to the latest format.")
         self._load_project_into_ui()
         self.update_window_title()
         self.update_preview()
         self._maybe_render_cover(force=True)
         self.set_dirty(False)
         self.recents.add_or_bump(self.project_path, self.project)
-        tile_path = Path(self.project.cover_tile_path) if self.project.cover_tile_path else None
+        tile_path = Path(
+            self.project.cover_tile_path) if self.project.cover_tile_path else None
         if self.project.cover_path:
-            self.recents.set_cover(self.project_path, Path(self.project.cover_path), tile_path=tile_path)
+            self.recents.set_cover(self.project_path, Path(
+                self.project.cover_path), tile_path=tile_path)
         elif tile_path:
             self.recents.set_thumbnail(self.project_path, tile_path)
 
@@ -8553,13 +8849,16 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             save_project(self.project_path, self.project)
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Could not save:\n{exc}")
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"Could not save:\n{exc}")
             return
         self.status_bar.showMessage("Project saved", 2000)
         self.recents.add_or_bump(self.project_path, self.project)
-        tile_path = Path(self.project.cover_tile_path) if self.project.cover_tile_path else None
+        tile_path = Path(
+            self.project.cover_tile_path) if self.project.cover_tile_path else None
         if self.project.cover_path:
-            self.recents.set_cover(self.project_path, Path(self.project.cover_path), tile_path=tile_path)
+            self.recents.set_cover(self.project_path, Path(
+                self.project.cover_path), tile_path=tile_path)
         elif tile_path:
             self.recents.set_thumbnail(self.project_path, tile_path)
         self.set_dirty(False)
@@ -8596,7 +8895,8 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Export failed", str(exc))
             return
         self.status_bar.showMessage(f"Exported to {out_dir}", 4000)
-        QtWidgets.QMessageBox.information(self, "Export complete", f"Your site was exported to:\n{out_dir}")
+        QtWidgets.QMessageBox.information(
+            self, "Export complete", f"Your site was exported to:\n{out_dir}")
 
     def export_zip(self) -> None:
         if not self.project:
@@ -8622,9 +8922,11 @@ class MainWindow(QtWidgets.QMainWindow):
                         file_path = os.path.join(root, filename)
                         arcname = os.path.relpath(file_path, tmp_dir)
                         zf.write(file_path, arcname)
-            QtWidgets.QMessageBox.information(self, "ZIP created", f"Archive saved to:\n{out_zip}")
+            QtWidgets.QMessageBox.information(
+                self, "ZIP created", f"Archive saved to:\n{out_zip}")
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "Error", f"ZIP export failed:\n{exc}")
+            QtWidgets.QMessageBox.critical(
+                self, "Error", f"ZIP export failed:\n{exc}")
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -8642,7 +8944,8 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(widget)
 
         prompt = QtWidgets.QPlainTextEdit(widget)
-        prompt.setPlaceholderText("Describe what you want: e.g., ‘Suggest a 3-column features section’.")
+        prompt.setPlaceholderText(
+            "Describe what you want: e.g., ‘Suggest a 3-column features section’.")
 
         buttons = QtWidgets.QHBoxLayout()
         btn_suggest = QtWidgets.QPushButton("Suggest Section", widget)
@@ -8713,8 +9016,10 @@ class MainWindow(QtWidgets.QMainWindow):
             thread.start()
 
         btn_suggest.clicked.connect(lambda: run_ai("Propose an HTML snippet"))
-        btn_css.clicked.connect(lambda: run_ai("Propose a focused CSS improvement"))
-        btn_explain.clicked.connect(lambda: run_ai("Explain the structure and accessible improvements"))
+        btn_css.clicked.connect(lambda: run_ai(
+            "Propose a focused CSS improvement"))
+        btn_explain.clicked.connect(lambda: run_ai(
+            "Explain the structure and accessible improvements"))
 
     def toggle_ai_dock(self) -> None:
         if self.ai_dock is None:
@@ -8726,6 +9031,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not visible:
             self.ai_dock.raise_()
     # Misc --------------------------------------------------------------
+
     def show_about(self) -> None:
         QtWidgets.QMessageBox.information(
             self,
@@ -8761,6 +9067,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # MainWindow does not have nav_list; this method is a no-op or should be removed.
         pass
 
+
 class _AIWorker(QObject):
     finished = pyqtSignal(str)
     errored = pyqtSignal(str)
@@ -8776,7 +9083,8 @@ class _AIWorker(QObject):
             try:
                 import requests
             except ModuleNotFoundError:
-                self.errored.emit("Install the 'requests' package to enable AI suggestions.")
+                self.errored.emit(
+                    "Install the 'requests' package to enable AI suggestions.")
                 return
 
             key = os.environ.get("OPENAI_API_KEY", "")
@@ -8795,11 +9103,13 @@ class _AIWorker(QObject):
             )
             payload = response.json()
             if response.status_code >= 400 or "error" in payload:
-                message = payload.get("error", {}).get("message", "Request failed")
+                message = payload.get("error", {}).get(
+                    "message", "Request failed")
                 self.errored.emit(str(message))
                 return
             choices = payload.get("choices") or []
-            text = choices[0].get("message", {}).get("content", "") if choices else ""
+            text = choices[0].get("message", {}).get(
+                "content", "") if choices else ""
             if not text:
                 text = "No response."
             self.finished.emit(text.strip())
@@ -8826,25 +9136,33 @@ class PublishDialog(QtWidgets.QDialog):
 
         def link_btn(caption: str, url: str) -> QtWidgets.QPushButton:
             button = QtWidgets.QPushButton(caption, guides_group)
-            button.clicked.connect(lambda checked=False, link=url: open_url(link))
+            button.clicked.connect(lambda checked=False,
+                                   link=url: open_url(link))
             return button
 
-        guides_layout.addWidget(link_btn("GitHub Pages quickstart", "https://docs.github.com/en/pages/quickstart"), 0, 0)
+        guides_layout.addWidget(link_btn(
+            "GitHub Pages quickstart", "https://docs.github.com/en/pages/quickstart"), 0, 0)
         guides_layout.addWidget(
-            link_btn("Static hosting tips (web.dev/hosting)", "https://web.dev/learn/pwa/hosting/"),
+            link_btn("Static hosting tips (web.dev/hosting)",
+                     "https://web.dev/learn/pwa/hosting/"),
             0,
             1,
         )
-        guides_layout.addWidget(link_btn("Netlify docs", "https://docs.netlify.com/"), 1, 0)
-        guides_layout.addWidget(link_btn("Vercel docs", "https://vercel.com/docs"), 1, 1)
+        guides_layout.addWidget(
+            link_btn("Netlify docs", "https://docs.netlify.com/"), 1, 0)
+        guides_layout.addWidget(
+            link_btn("Vercel docs", "https://vercel.com/docs"), 1, 1)
 
         domain_group = QtWidgets.QGroupBox("Get a domain", self)
         domain_layout = QtWidgets.QHBoxLayout(domain_group)
-        domain_layout.addWidget(link_btn("LeanDomainSearch", "https://leandomainsearch.com/"))
         domain_layout.addWidget(
-            link_btn("Namecheap Generator", "https://www.namecheap.com/domains/domain-name-generator/"),
+            link_btn("LeanDomainSearch", "https://leandomainsearch.com/"))
+        domain_layout.addWidget(
+            link_btn("Namecheap Generator",
+                     "https://www.namecheap.com/domains/domain-name-generator/"),
         )
-        domain_layout.addWidget(link_btn("Cloudflare Registrar", "https://www.cloudflare.com/products/registrar/"))
+        domain_layout.addWidget(link_btn(
+            "Cloudflare Registrar", "https://www.cloudflare.com/products/registrar/"))
 
         layout.addWidget(export_group)
         layout.addWidget(guides_group)
@@ -8871,7 +9189,8 @@ class AppController(QtCore.QObject):
     def show_start(self, tab: Optional[str] = None) -> None:
         if self.start_window is None:
             self.start_window = StartWindow(self, self.recents, self.settings)
-            self.start_window.project_opened.connect(self.open_project_from_start)
+            self.start_window.project_opened.connect(
+                self.open_project_from_start)
         # if tab:
         #     self.start_window.show_tab(tab)
         self.start_window.show()
@@ -8896,9 +9215,11 @@ class AppController(QtCore.QObject):
         if path is not None:
             self.recents.add_or_bump(path, project)
             thumb = write_project_thumbnail(project, path)
-            tile_path = Path(project.cover_tile_path) if project.cover_tile_path else thumb
+            tile_path = Path(
+                project.cover_tile_path) if project.cover_tile_path else thumb
             if project.cover_path:
-                self.recents.set_cover(path, Path(project.cover_path), tile_path=tile_path)
+                self.recents.set_cover(path, Path(
+                    project.cover_path), tile_path=tile_path)
             elif tile_path:
                 self.recents.set_thumbnail(path, tile_path)
         if self.start_window is not None:
@@ -8921,8 +9242,7 @@ def main() -> int:
     controller.show_start()
     return app.exec()
 
+
 if __name__ == "__main__":
 
-  raise SystemExit(main())
-
-    
+    raise SystemExit(main())

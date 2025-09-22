@@ -48,56 +48,74 @@ class MainWindow(QtWidgets.QMainWindow):
         splitter.setOrientation(QtCore.Qt.Orientation.Horizontal)
         self.setCentralWidget(splitter)
 
-        # Pages panel
+        # --- Left: Pages panel -------------------------------------------------
         left_panel = QtWidgets.QWidget(self)
         left_layout = QtWidgets.QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(6, 6, 6, 6)
-        left_layout.setSpacing(6)
+        left_layout.setContentsMargins(12, 12, 12, 12)   # was 6
+        left_layout.setSpacing(12)                       # was 6
+
+        header = QtWidgets.QHBoxLayout()
+        header.addWidget(QtWidgets.QLabel("Pages", left_panel))
+        header.addStretch(1)
+        left_layout.addLayout(header)
 
         self.pages_list = QtWidgets.QListWidget(left_panel)
-        self.pages_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.pages_list.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.pages_list.setMinimumHeight(180)            # prevent crushing
+        left_layout.addWidget(self.pages_list, 1)
 
         btn_row = QtWidgets.QHBoxLayout()
         self.btn_add_page = QtWidgets.QPushButton("Add Page", left_panel)
         self.btn_remove_page = QtWidgets.QPushButton("Remove Page", left_panel)
+        self.btn_add_page.setMinimumHeight(32)
+        self.btn_remove_page.setMinimumHeight(32)
         btn_row.addWidget(self.btn_add_page)
         btn_row.addWidget(self.btn_remove_page)
-
-        left_layout.addWidget(QtWidgets.QLabel("Pages", left_panel))
-        left_layout.addWidget(self.pages_list, 1)
         left_layout.addLayout(btn_row)
+        # bottom breathing room
+        left_layout.addStretch(1)
 
-        # Editors + assets tabs
+        # --- Center: editors/assets tabs --------------------------------------
         mid_tabs = QtWidgets.QTabWidget(self)
         mid_tabs.setDocumentMode(True)
+        mid_tabs.setContentsMargins(12, 12, 12, 12)      # extra buffer
 
         self.html_editor = QtWidgets.QPlainTextEdit(mid_tabs)
-        self.html_editor.setPlaceholderText("<h2>Hello</h2>\n<p>Edit your page HTML here.</p>")
+        self.html_editor.setPlaceholderText(
+            "<h2>Hello</h2>\n<p>Edit your page HTML here.</p>")
+        self.html_editor.setMinimumHeight(120)
+
         self.css_editor = QtWidgets.QPlainTextEdit(mid_tabs)
         self.css_editor.setPlaceholderText("/* Global site CSS lives here */")
+        self.css_editor.setMinimumHeight(80)
+
         self.assets_view = QtWidgets.QListWidget(mid_tabs)
-        self.assets_view.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.assets_view.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.assets_view.setUniformItemSizes(True)
+        self.assets_view.setMinimumHeight(80)
 
         mid_tabs.addTab(self.html_editor, "Page HTML")
         mid_tabs.addTab(self.css_editor, "Styles (CSS)")
         mid_tabs.addTab(self.assets_view, "Assets")
 
-        # Preview
+        # --- Right: live preview ----------------------------------------------
         right_panel = QtWidgets.QWidget(self)
         right_layout = QtWidgets.QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(6, 6, 6, 6)
-        right_layout.setSpacing(6)
+        # was 6  :contentReference[oaicite:1]{index=1}
+        right_layout.setContentsMargins(12, 12, 12, 12)
+        right_layout.setSpacing(12)                      # was 6
+        right_layout.addWidget(QtWidgets.QLabel("Preview", right_panel))
 
         self.preview = QWebEngineView(right_panel)
-        right_layout.addWidget(QtWidgets.QLabel("Preview", right_panel))
         right_layout.addWidget(self.preview, 1)
 
         splitter.addWidget(left_panel)
         splitter.addWidget(mid_tabs)
         splitter.addWidget(right_panel)
-        splitter.setSizes([240, 560, 520])
-
+        # slightly wider left column
+        splitter.setSizes([260, 560, 520])
         self.status = self.statusBar()
 
     def _build_menu(self) -> None:
@@ -146,7 +164,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def _bind_events(self) -> None:
         self.btn_add_page.clicked.connect(self.add_page)
         self.btn_remove_page.clicked.connect(self.remove_page)
-        self.pages_list.currentRowChanged.connect(self._on_page_selection_changed)
+        self.pages_list.currentRowChanged.connect(
+            self._on_page_selection_changed)
 
         self.html_editor.textChanged.connect(self._on_editor_changed)
         self.css_editor.textChanged.connect(self._on_editor_changed)
@@ -162,12 +181,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # ----------------------------------------------------------- Project Ops --
     def new_project_bootstrap(self) -> None:
-        name, ok = QtWidgets.QInputDialog.getText(self, "New Project", "Site name:", text="My Site")
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "New Project", "Site name:", text="My Site")
         if not ok or not name.strip():
             return
         self.project = Project(
             name=name.strip(),
-            pages=[Page(filename="index.html", title="Home", html=self._default_index_html())],
+            pages=[Page(filename="index.html", title="Home",
+                        html=self._default_index_html())],
             css=self._default_css(),
             output_dir=None,
         )
@@ -182,7 +203,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.update_preview()
 
     def open_project_dialog(self) -> None:
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open Project", "", "Site Project (*.siteproj)")
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Open Project", "", "Site Project (*.siteproj)")
         if not path:
             return
         self.project = storage.load_project(path)
@@ -212,7 +234,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.project is None:
             return
         self._flush_editors_to_model()
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save Project As", "", "Site Project (*.siteproj)")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save Project As", "", "Site Project (*.siteproj)")
         if not path:
             return
         path = path if path.endswith(".siteproj") else f"{path}.siteproj"
@@ -226,14 +249,17 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.project is None:
             return
         self._flush_editors_to_model()
-        out_dir = QtWidgets.QFileDialog.getExistingDirectory(self, "Export Site To…")
+        out_dir = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Export Site To…")
         if not out_dir:
             return
-        templates_dir = Path(__file__).resolve().parent.parent / "core" / "templates"
+        templates_dir = Path(__file__).resolve(
+        ).parent.parent / "core" / "templates"
         generator.render_site(self.project, out_dir, templates_dir)
         if self.status is not None:
             self.status.showMessage(f"Exported site to {out_dir}", 5000)
-        QtWidgets.QMessageBox.information(self, "Export complete", f"Your site was exported to:\n{out_dir}")
+        QtWidgets.QMessageBox.information(
+            self, "Export complete", f"Your site was exported to:\n{out_dir}")
 
     def import_project_dialog(self) -> None:
         if self.project is None:
@@ -260,7 +286,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 try:
                     shutil.copy2(src_path, dest)
                 except Exception as exc:
-                    QtWidgets.QMessageBox.warning(self, "Import", f"Failed to include {src_path}: {exc}")
+                    QtWidgets.QMessageBox.warning(
+                        self, "Import", f"Failed to include {src_path}: {exc}")
             source_path = cleanup_dir
         else:
             source_path = Path(paths[0])
@@ -268,12 +295,15 @@ class MainWindow(QtWidgets.QMainWindow):
         target_project = self.project
         new_project_created = False
         if options.create_new_project:
-            target_project = Project(name="Imported Site", pages=[], css=self._default_css(), output_dir=None)
+            target_project = Project(
+                name="Imported Site", pages=[], css=self._default_css(), output_dir=None)
             new_project_created = True
 
-        existing_positions = {page.filename: idx for idx, page in enumerate(target_project.pages)}
+        existing_positions = {page.filename: idx for idx,
+                              page in enumerate(target_project.pages)}
 
-        progress = QtWidgets.QProgressDialog("Importing content…", None, 0, 1, self)
+        progress = QtWidgets.QProgressDialog(
+            "Importing content…", None, 0, 1, self)
         progress.setWindowTitle("Importing")
         progress.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
@@ -282,10 +312,12 @@ class MainWindow(QtWidgets.QMainWindow):
         def on_progress(current: int, total: int) -> None:
             progress.setMaximum(total)
             progress.setValue(current)
-            QtCore.QCoreApplication.processEvents(QtCore.QEventLoop.ProcessEventsFlag.AllEvents, 50)
+            QtCore.QCoreApplication.processEvents(
+                QtCore.QEventLoop.ProcessEventsFlag.AllEvents, 50)
 
         try:
-            result = import_into_project(target_project, source_path, options, progress_callback=on_progress)
+            result = import_into_project(
+                target_project, source_path, options, progress_callback=on_progress)
         finally:
             progress.close()
             if cleanup_dir:
@@ -325,7 +357,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def add_page(self) -> None:
         if self.project is None:
             return
-        title, ok = QtWidgets.QInputDialog.getText(self, "Add Page", "Page title:", text="About")
+        title, ok = QtWidgets.QInputDialog.getText(
+            self, "Add Page", "Page title:", text="About")
         if not ok or not title.strip():
             return
         slug = "-".join(title.lower().split()) or "page"
@@ -335,7 +368,8 @@ class MainWindow(QtWidgets.QMainWindow):
         while filename in existing:
             filename = f"{slug}-{counter}.html"
             counter += 1
-        self.project.pages.append(Page(filename=filename, title=title.strip(), html=f"<h2>{title}</h2>\n<p>New page.</p>"))
+        self.project.pages.append(Page(filename=filename, title=title.strip(
+        ), html=f"<h2>{title}</h2>\n<p>New page.</p>"))
         self._refresh_pages_list(select_index=len(self.project.pages) - 1)
         self.update_preview()
 
@@ -347,7 +381,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         page = self.project.pages[row]
         if page.filename == "index.html":
-            QtWidgets.QMessageBox.warning(self, "Not allowed", "You cannot remove the home page (index.html).")
+            QtWidgets.QMessageBox.warning(
+                self, "Not allowed", "You cannot remove the home page (index.html).")
             return
         del self.project.pages[row]
         self._refresh_pages_list(select_index=max(0, row - 1))
@@ -408,7 +443,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._preview_tmp and os.path.isdir(self._preview_tmp):
             shutil.rmtree(self._preview_tmp, ignore_errors=True)
         self._preview_tmp = tempfile.mkdtemp(prefix="sitebuilder_preview_")
-        templates_dir = Path(__file__).resolve().parent.parent / "core" / "templates"
+        templates_dir = Path(__file__).resolve(
+        ).parent.parent / "core" / "templates"
         generator.render_site(self.project, self._preview_tmp, templates_dir)
 
         row = self.pages_list.currentRow()
@@ -483,7 +519,8 @@ def _show_import_summary(parent: QtWidgets.QWidget, result: ImportResult) -> Non
 
     message = QtWidgets.QMessageBox(parent)
     message.setWindowTitle("Import summary")
-    message.setIcon(QtWidgets.QMessageBox.Icon.Warning if result.errors else QtWidgets.QMessageBox.Icon.Information)
+    message.setIcon(
+        QtWidgets.QMessageBox.Icon.Warning if result.errors else QtWidgets.QMessageBox.Icon.Information)
     message.setText("\n".join(summary_lines))
 
     inline: list[str] = []
@@ -555,8 +592,10 @@ class ImportDialog(QtWidgets.QDialog):
         behavior_box = QtWidgets.QGroupBox("Behavior", self)
         behavior_layout = QtWidgets.QGridLayout(behavior_box)
 
-        self.merge_current_radio = QtWidgets.QRadioButton("Merge into current project", behavior_box)
-        self.create_new_radio = QtWidgets.QRadioButton("Create new project from import", behavior_box)
+        self.merge_current_radio = QtWidgets.QRadioButton(
+            "Merge into current project", behavior_box)
+        self.create_new_radio = QtWidgets.QRadioButton(
+            "Create new project from import", behavior_box)
         self.merge_current_radio.setChecked(True)
 
         behavior_layout.addWidget(self.merge_current_radio, 0, 0, 1, 2)
@@ -572,9 +611,11 @@ class ImportDialog(QtWidgets.QDialog):
         self.css_combo.addItems(["Append", "Prepend", "Replace"])
         behavior_layout.addWidget(self.css_combo, 3, 1)
 
-        self.rewrite_links_check = QtWidgets.QCheckBox("Rewrite page links", behavior_box)
+        self.rewrite_links_check = QtWidgets.QCheckBox(
+            "Rewrite page links", behavior_box)
         self.rewrite_links_check.setChecked(True)
-        self.rewrite_assets_check = QtWidgets.QCheckBox("Rewrite asset URLs", behavior_box)
+        self.rewrite_assets_check = QtWidgets.QCheckBox(
+            "Rewrite asset URLs", behavior_box)
         self.rewrite_assets_check.setChecked(True)
         behavior_layout.addWidget(self.rewrite_links_check, 4, 0, 1, 2)
         behavior_layout.addWidget(self.rewrite_assets_check, 5, 0, 1, 2)
@@ -584,22 +625,28 @@ class ImportDialog(QtWidgets.QDialog):
         self.advanced_button = QtWidgets.QToolButton(self)
         self.advanced_button.setText("Show advanced ▸")
         self.advanced_button.setCheckable(True)
-        self.advanced_button.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.advanced_button.setToolButtonStyle(
+            QtCore.Qt.ToolButtonStyle.ToolButtonTextOnly)
         layout.addWidget(self.advanced_button)
 
         self.advanced_widget = QtWidgets.QWidget(self)
         advanced_layout = QtWidgets.QFormLayout(self.advanced_widget)
         self.page_filename_combo = QtWidgets.QComboBox(self.advanced_widget)
-        self.page_filename_combo.addItems(["Slugify", "Keep original", "Prefix on collision"])
+        self.page_filename_combo.addItems(
+            ["Slugify", "Keep original", "Prefix on collision"])
         self.markdown_combo = QtWidgets.QComboBox(self.advanced_widget)
         self.markdown_combo.addItems(["GitHub Flavored", "CommonMark"])
-        self.wrap_text_check = QtWidgets.QCheckBox("Wrap plain text paragraphs", self.advanced_widget)
+        self.wrap_text_check = QtWidgets.QCheckBox(
+            "Wrap plain text paragraphs", self.advanced_widget)
         self.wrap_text_check.setChecked(True)
-        self.home_index_check = QtWidgets.QCheckBox("Set home page to index.html when present", self.advanced_widget)
+        self.home_index_check = QtWidgets.QCheckBox(
+            "Set home page to index.html when present", self.advanced_widget)
         self.home_index_check.setChecked(True)
-        self.ignore_hidden_check = QtWidgets.QCheckBox("Ignore hidden files", self.advanced_widget)
+        self.ignore_hidden_check = QtWidgets.QCheckBox(
+            "Ignore hidden files", self.advanced_widget)
         self.ignore_hidden_check.setChecked(True)
-        self.include_js_check = QtWidgets.QCheckBox("Include JavaScript files", self.advanced_widget)
+        self.include_js_check = QtWidgets.QCheckBox(
+            "Include JavaScript files", self.advanced_widget)
         self.include_js_check.setChecked(True)
 
         advanced_layout.addRow("Filename strategy", self.page_filename_combo)
@@ -610,7 +657,8 @@ class ImportDialog(QtWidgets.QDialog):
         advanced_layout.addRow(self.include_js_check)
 
         self.ext_list = QtWidgets.QListWidget(self.advanced_widget)
-        self.ext_list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.MultiSelection)
+        self.ext_list.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.MultiSelection)
         advanced_layout.addRow("Allowed extensions", self.ext_list)
 
         layout.addWidget(self.advanced_widget)
@@ -623,7 +671,8 @@ class ImportDialog(QtWidgets.QDialog):
             QtWidgets.QDialogButtonBox.StandardButton.Ok | QtWidgets.QDialogButtonBox.StandardButton.Cancel,
             parent=self,
         )
-        ok_button = buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Ok)
+        ok_button = buttons.button(
+            QtWidgets.QDialogButtonBox.StandardButton.Ok)
         if ok_button is not None:
             ok_button.setText("Import")
         buttons.accepted.connect(self.accept)
@@ -633,17 +682,20 @@ class ImportDialog(QtWidgets.QDialog):
         self._populate_extensions()
 
     def _toggle_advanced(self, checked: bool) -> None:
-        self.advanced_button.setText("Hide advanced ◂" if checked else "Show advanced ▸")
+        self.advanced_button.setText(
+            "Hide advanced ◂" if checked else "Show advanced ▸")
         self.advanced_widget.setVisible(checked)
 
     def _populate_extensions(self) -> None:
         ext_items = self._build_extension_items()
         for entry in ext_items:
             item = QtWidgets.QListWidgetItem(entry.label, self.ext_list)
-            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+            item.setFlags(
+                item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
             if not entry.enabled:
                 item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
-            item.setCheckState(QtCore.Qt.CheckState.Checked if entry.enabled else QtCore.Qt.CheckState.Unchecked)
+            item.setCheckState(
+                QtCore.Qt.CheckState.Checked if entry.enabled else QtCore.Qt.CheckState.Unchecked)
             if entry.tooltip:
                 item.setToolTip(entry.tooltip)
 
@@ -668,18 +720,21 @@ class ImportDialog(QtWidgets.QDialog):
             elif ext == ".ipynb" and (getattr(importers, "nbformat", None) is None or getattr(importers, "HTMLExporter", None) is None):
                 enabled = False
                 tip = optional_tips[ext]
-            items.append(_ExtensionItem(label=ext, enabled=enabled, tooltip=tip))
+            items.append(_ExtensionItem(
+                label=ext, enabled=enabled, tooltip=tip))
         return items
 
     def _on_browse(self) -> None:
         if self.radio_folder.isChecked():
-            path = QtWidgets.QFileDialog.getExistingDirectory(self, "Select folder")
+            path = QtWidgets.QFileDialog.getExistingDirectory(
+                self, "Select folder")
             if path:
                 self._selected_path = path
                 self._selected_files = []
                 self.path_edit.setText(path)
         elif self.radio_zip.isChecked():
-            path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Select zip", "", "Zip Archives (*.zip)")
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                self, "Select zip", "", "Zip Archives (*.zip)")
             if path:
                 self._selected_path = path
                 self._selected_files = []
@@ -699,12 +754,14 @@ class ImportDialog(QtWidgets.QDialog):
     def selection(self) -> tuple[str, list[str]] | None:
         if self.radio_files.isChecked():
             if not self._selected_files:
-                QtWidgets.QMessageBox.warning(self, "Import", "Select at least one file to import.")
+                QtWidgets.QMessageBox.warning(
+                    self, "Import", "Select at least one file to import.")
                 return None
             return "files", self._selected_files
         path = self._selected_path
         if not path:
-            QtWidgets.QMessageBox.warning(self, "Import", "Select a source to import.")
+            QtWidgets.QMessageBox.warning(
+                self, "Import", "Select a source to import.")
             return None
         if self.radio_folder.isChecked():
             return "folder", [path]
@@ -738,16 +795,19 @@ class ImportDialog(QtWidgets.QDialog):
         }
         return ImportOptions(
             create_new_project=self.create_new_radio.isChecked(),
-            page_filename_strategy=cast(Literal["keep", "slugify", "prefix-collisions"], filename_map[self.page_filename_combo.currentText()]),
-            conflict_policy=cast(Literal["overwrite", "keep-both", "skip"], conflict_map[self.conflict_combo.currentText()]),
-            merge_css=cast(Literal["append", "prepend", "replace"], css_map[self.css_combo.currentText()]),
+            page_filename_strategy=cast(
+                Literal["keep", "slugify", "prefix-collisions"], filename_map[self.page_filename_combo.currentText()]),
+            conflict_policy=cast(
+                Literal["overwrite", "keep-both", "skip"], conflict_map[self.conflict_combo.currentText()]),
+            merge_css=cast(Literal["append", "prepend", "replace"],
+                           css_map[self.css_combo.currentText()]),
             rewrite_links=self.rewrite_links_check.isChecked(),
             rewrite_asset_urls=self.rewrite_assets_check.isChecked(),
-            md_flavor=cast(Literal["gfm", "commonmark"], md_map[self.markdown_combo.currentText()]),
+            md_flavor=cast(Literal["gfm", "commonmark"],
+                           md_map[self.markdown_combo.currentText()]),
             text_wrap_paragraphs=self.wrap_text_check.isChecked(),
             set_home_to_index_if_present=self.home_index_check.isChecked(),
             ignore_hidden=self.ignore_hidden_check.isChecked(),
             include_js_files=self.include_js_check.isChecked(),
             allowed_extensions=allowed_exts or set(ALLOWED_EXTS_DEFAULT),
         )
-
