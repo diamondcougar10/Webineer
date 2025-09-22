@@ -21,6 +21,13 @@ APP_TITLE = "PyQt Site Builder"
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(MainWindow, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
@@ -103,13 +110,46 @@ class MainWindow(QtWidgets.QMainWindow):
         # --- Right: live preview ----------------------------------------------
         right_panel = QtWidgets.QWidget(self)
         right_layout = QtWidgets.QVBoxLayout(right_panel)
-        # was 6  :contentReference[oaicite:1]{index=1}
         right_layout.setContentsMargins(12, 12, 12, 12)
-        right_layout.setSpacing(12)                      # was 6
-        right_layout.addWidget(QtWidgets.QLabel("Preview", right_panel))
+        right_layout.setSpacing(12)
+
+        # Preview controls: page selector and device size buttons
+        preview_controls = QtWidgets.QHBoxLayout()
+        preview_controls.setSpacing(8)
+
+        preview_controls.addWidget(QtWidgets.QLabel("Preview:"))
+
+        # Page dropdown
+        self.page_combo = QtWidgets.QComboBox(right_panel)
+        self.page_combo.setMinimumWidth(160)
+        preview_controls.addWidget(self.page_combo)
+
+        # Device size selector
+        self.device_group = QtWidgets.QButtonGroup(right_panel)
+        self.device_desktop = QtWidgets.QPushButton("Desktop")
+        self.device_tablet = QtWidgets.QPushButton("Tablet")
+        self.device_mobile = QtWidgets.QPushButton("Mobile")
+        for btn in [self.device_desktop, self.device_tablet, self.device_mobile]:
+            btn.setCheckable(True)
+            preview_controls.addWidget(btn)
+        self.device_group.addButton(self.device_desktop, 0)
+        self.device_group.addButton(self.device_tablet, 1)
+        self.device_group.addButton(self.device_mobile, 2)
+        self.device_desktop.setChecked(True)
+
+        preview_controls.addStretch(1)
+        right_layout.addLayout(preview_controls)
 
         self.preview = QWebEngineView(right_panel)
         right_layout.addWidget(self.preview, 1)
+
+        # Device sizes (width, height)
+        self._device_sizes = {
+            0: (1100, 700),   # Desktop
+            1: (800, 1000),   # Tablet
+            2: (400, 800),    # Mobile
+        }
+        self._current_device = 0
 
         splitter.addWidget(left_panel)
         splitter.addWidget(mid_tabs)
@@ -166,9 +206,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btn_remove_page.clicked.connect(self.remove_page)
         self.pages_list.currentRowChanged.connect(
             self._on_page_selection_changed)
-
         self.html_editor.textChanged.connect(self._on_editor_changed)
         self.css_editor.textChanged.connect(self._on_editor_changed)
+
+        # Page dropdown selection
+        self.page_combo.currentIndexChanged.connect(
+            self._on_page_combo_changed)
+        # Device size buttons
+        self.device_group.buttonClicked[int].connect(self._on_device_changed)
 
         self.act_new.triggered.connect(self.new_project_bootstrap)
         self.act_open.triggered.connect(self.open_project_dialog)
@@ -200,6 +245,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self.css_editor.setPlainText(self.project.css)
         self._load_page_into_editor(0)
         self.update_window_title()
+        self._refresh_page_combo()
+        self.update_preview()
+
+    def _refresh_page_combo(self):
+        self.page_combo.blockSignals(True)
+        self.page_combo.clear()
+        if self.project and self.project.pages:
+            for page in self.project.pages:
+                self.page_combo.addItem(page.title or page.filename)
+        self.page_combo.setCurrentIndex(
+            self.pages_list.currentRow() if self.pages_list.currentRow() >= 0 else 0)
+        self.page_combo.blockSignals(False)
+
+    def _on_page_combo_changed(self, idx):
+        if self.project and 0 <= idx < len(self.project.pages):
+            self.pages_list.setCurrentRow(idx)
+            self.update_preview()
+
+    def _on_device_changed(self, device_id):
+        self._current_device = device_id
+        w, h = self._device_sizes.get(device_id, (1100, 700))
+        self.preview.setFixedSize(w, h)
         self.update_preview()
 
     def open_project_dialog(self) -> None:
@@ -371,6 +438,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.project.pages.append(Page(filename=filename, title=title.strip(
         ), html=f"<h2>{title}</h2>\n<p>New page.</p>"))
         self._refresh_pages_list(select_index=len(self.project.pages) - 1)
+        self._refresh_page_combo()
         self.update_preview()
 
     def remove_page(self) -> None:
@@ -386,6 +454,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         del self.project.pages[row]
         self._refresh_pages_list(select_index=max(0, row - 1))
+        self._refresh_page_combo()
         self.update_preview()
 
     def _refresh_pages_list(self, select_index: int = 0) -> None:
@@ -420,6 +489,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._flush_editors_to_model(self._current_page_index)
         self._current_page_index = row
         self._load_page_into_editor(row)
+        self.page_combo.setCurrentIndex(row)
         self.update_preview()
 
     # ---------------------------------------------------- Editing & Preview --
