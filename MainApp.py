@@ -7209,6 +7209,17 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.menu_animation.addActions(
                     [classic_fade, classic_zoom, classic_blur, loop_float])
 
+        preview_menu = bar.addMenu("&Preview")
+        self.act_preview_browser = QtGui.QAction("Preview in Browser", self)
+        self.act_preview_browser.setShortcut(QtGui.QKeySequence("F12"))
+        self.act_preview_browser.setStatusTip(
+            "Render the site to a temp folder and open it in your default browser")
+        preview_menu.addAction(self.act_preview_browser)
+
+        if not hasattr(self, "toolbar"):
+            self.toolbar = self.addToolBar("Main")
+        self.toolbar.addAction(self.act_preview_browser)
+
         m_publish = bar.addMenu("&Publish")
         self.act_publish = QtGui.QAction("Publish…", self)
         if m_publish is not None:
@@ -7289,6 +7300,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.act_save.triggered.connect(self.save_project)
         self.act_save_as.triggered.connect(self.save_project_as)
         self.act_export.triggered.connect(self.export_project)
+        self.act_preview_browser.triggered.connect(self.preview_in_browser)
         self.act_quit.triggered.connect(self.close)
         self.act_start.triggered.connect(
             lambda: self.controller.show_start_from_main("Recent"))
@@ -8893,6 +8905,52 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_bar.showMessage(f"Exported to {out_dir}", 4000)
         QtWidgets.QMessageBox.information(
             self, "Export complete", f"Your site was exported to:\n{out_dir}")
+
+    def preview_in_browser(self) -> None:
+        if not self.project or not self.project.pages:
+            QtWidgets.QMessageBox.information(
+                self, "Nothing to preview", "Create at least one page.")
+            return
+
+        if hasattr(self, "_flush_editors_to_model"):
+            self._flush_editors_to_model()
+
+        proj_name = getattr(self.project, "name", "My Site")
+        try:
+            slug = slugify(proj_name)
+        except NameError:
+            slug = re.sub(r"[^a-z0-9]+", "-", str(proj_name).lower()).strip("-") or "site"
+
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        out_dir = PREVIEWS_DIR / slug / ts
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            render_site(self.project, out_dir)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Preview failed", str(exc))
+            return
+
+        idx = 0
+        if hasattr(self, "pages_list"):
+            current_idx = self.pages_list.currentRow()
+            if current_idx is not None and current_idx >= 0:
+                idx = current_idx
+        if idx >= len(self.project.pages):
+            idx = 0
+
+        default_page = self.project.pages[idx]
+        page = next(
+            (p for p in self.project.pages if p.filename == "index.html"),
+            default_page,
+        )
+
+        target = out_dir / page.filename
+        url = QUrl.fromLocalFile(str(target)).toString()
+        open_url(url)
+
+        if hasattr(self, "status_bar"):
+            self.status_bar.showMessage("Opened browser preview", 4000)
 
     def export_zip(self) -> None:
         if not self.project:
