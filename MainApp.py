@@ -20,8 +20,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple, cast
 from PyQt6 import QtCore, QtGui, QtWidgets
-from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QCloseEvent, QDesktopServices
+from PyQt6.QtCore import QObject, QThread, Qt, QUrl, pyqtSignal, QTimer, QPropertyAnimation
+from PyQt6.QtGui import QCloseEvent, QDesktopServices, QPixmap
+# Try multimedia; allow graceful fallback
+try:
+    from PyQt6.QtMultimedia import QAudioOutput, QMediaPlayer
+
+    _WEBINEER_AUDIO_OK = True
+except Exception:
+    _WEBINEER_AUDIO_OK = False
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
 
@@ -179,6 +186,19 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "section"
 
 
+def app_base_dir() -> Path:
+    """Return the base directory for assets."""
+
+    base = getattr(sys, "_MEIPASS", None)
+    return Path(base) if base else Path(__file__).resolve().parent
+
+
+def asset_path(*parts: str) -> Path:
+    """Build an absolute path to an asset bundled with the app."""
+
+    return app_base_dir().joinpath(*parts)
+
+
 def app_data_dir() -> Path:
     """Return the platform-specific application data directory."""
     if os.name == "nt":
@@ -199,6 +219,118 @@ COVERS_DIR.mkdir(parents=True, exist_ok=True)
 COVER_FULL_SIZE = QtCore.QSize(1280, 800)
 COVER_TILE_SIZE = QtCore.QSize(420, 260)
 
+SPLASH_IMAGE = Path(r"C:\Users\curph\OneDrive\Documents\GitHub\Webineer\Assets\SplashScreen.png")
+INTRO_SOUND = Path(r"C:\Users\curph\OneDrive\Documents\GitHub\Webineer\Assets\intro-sound-2-269294.mp3")
+
+
+class _AudioOnce:
+    """Holds player references so they don't get GC'ed."""
+
+    def __init__(self) -> None:
+        self.player: Optional["QMediaPlayer"] = None
+        self.output: Optional["QAudioOutput"] = None
+
+
+INTRO_AUDIO = _AudioOnce()
+
+
+def play_intro_sound(volume_pct: int = 70, source: Optional[Path] = None) -> None:
+    """Play intro sound once if multimedia is available."""
+
+    if not _WEBINEER_AUDIO_OK:
+        return
+
+    src = source if source and source.exists() else INTRO_SOUND
+    if not src.exists():
+        bundled = asset_path("Assets", "intro-sound-2-269294.mp3")
+        if bundled.exists():
+            src = bundled
+        else:
+            return
+
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+
+    INTRO_AUDIO.player = QMediaPlayer()
+    INTRO_AUDIO.output = QAudioOutput()
+    INTRO_AUDIO.player.setAudioOutput(INTRO_AUDIO.output)
+    INTRO_AUDIO.output.setVolume(max(0.0, min(1.0, volume_pct / 100.0)))
+    INTRO_AUDIO.player.setSource(QtCore.QUrl.fromLocalFile(str(src)))
+    INTRO_AUDIO.player.play()
+
+
+def show_splash_and_fade(app: QtWidgets.QApplication) -> Optional[QtWidgets.QSplashScreen]:
+    """Show splash screen if enabled and asset exists."""
+
+    try:
+        sm = SettingsManager()
+        show = sm.get("show_splash", "1") == "1"
+    except Exception:
+        show = True
+
+    img = SPLASH_IMAGE if SPLASH_IMAGE.exists() else asset_path("Assets", "SplashScreen.png")
+    if not show or not img.exists():
+        return None
+
+    pm = QPixmap(str(img))
+    if pm.isNull():
+        return None
+
+    splash = QtWidgets.QSplashScreen(pm)
+    splash.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+    splash.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
+    splash.setEnabled(False)
+    splash.setWindowOpacity(0.0)
+    splash.show()
+    app.processEvents()
+
+    fade_in = QPropertyAnimation(splash, b"windowOpacity")
+    fade_in.setDuration(250)
+    fade_in.setStartValue(0.0)
+    fade_in.setEndValue(1.0)
+    fade_in.start(QtCore.QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
+    setattr(splash, "_fade_in_anim", fade_in)
+
+    splash.showMessage(
+        "Starting Webineer…",
+        Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignHCenter,
+        QtGui.QColor("white"),
+    )
+    app.processEvents()
+    return splash
+
+
+def hide_splash_with_fade(
+    splash: Optional[QtWidgets.QSplashScreen],
+    target: Optional[QtWidgets.QWidget] = None,
+) -> None:
+    """Fade out and close the splash screen."""
+
+    if splash is None:
+        return
+
+    anim = QPropertyAnimation(splash, b"windowOpacity")
+    anim.setDuration(180)
+    anim.setStartValue(splash.windowOpacity())
+    anim.setEndValue(0.0)
+
+    def _finish() -> None:
+        try:
+            if target is not None:
+                splash.finish(target)
+            else:
+                splash.close()
+        except Exception:
+            try:
+                splash.close()
+            except Exception:
+                pass
+
+    anim.finished.connect(_finish)
+    anim.start(QtCore.QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
+    setattr(splash, "_fade_out_anim", anim)
+
 
 class SettingsManager:
     """Very small settings helper storing JSON data."""
@@ -208,6 +340,7 @@ class SettingsManager:
         self.load()
 
     def load(self) -> None:
+        changed = False
         if SETTINGS_PATH.exists():
             try:
                 self._settings = json.loads(
@@ -215,6 +348,24 @@ class SettingsManager:
                         encoding="utf-8"))
             except Exception:
                 self._settings = {}
+        else:
+            self._settings = {}
+
+        if self._settings.get("show_splash", "") == "":
+            self._settings["show_splash"] = "1"
+            changed = True
+        if self._settings.get("play_intro_sound", "") == "":
+            self._settings["play_intro_sound"] = "1"
+            changed = True
+        if self._settings.get("intro_volume", "") == "":
+            self._settings["intro_volume"] = "70"
+            changed = True
+
+        if changed:
+            try:
+                self.save()
+            except Exception:
+                pass
 
     def save(self) -> None:
         SETTINGS_PATH.write_text(
@@ -7247,6 +7398,19 @@ class MainWindow(QtWidgets.QMainWindow):
             help_menu.addAction(self.act_about)
             help_menu.addAction(self.act_get_started)
             help_menu.addAction(self.act_ai)
+            help_menu.addSeparator()
+            self.act_replay_intro = QtGui.QAction("Replay intro sound", self)
+
+            def _replay_intro() -> None:
+                volume = 70
+                try:
+                    volume = int(self.settings.get("intro_volume", "70"))
+                except Exception:
+                    volume = 70
+                play_intro_sound(volume_pct=max(0, min(100, volume)))
+
+            self.act_replay_intro.triggered.connect(_replay_intro)
+            help_menu.addAction(self.act_replay_intro)
 
     def _bind_events(self) -> None:
         self.pages_list.currentRowChanged.connect(self._on_page_selected)
@@ -9173,10 +9337,14 @@ class PublishDialog(QtWidgets.QDialog):
 
 
 class AppController(QtCore.QObject):
-    def __init__(self, app: QtWidgets.QApplication) -> None:
+    def __init__(
+        self,
+        app: QtWidgets.QApplication,
+        settings: Optional[SettingsManager] = None,
+    ) -> None:
         super().__init__()
         self.app = app
-        self.settings = SettingsManager()
+        self.settings = settings if settings is not None else SettingsManager()
         self.recents = RecentProjectsManager()
         self.start_window: Optional[StartWindow] = None
         self.main_windows: List[MainWindow] = []
@@ -9233,8 +9401,33 @@ class AppController(QtCore.QObject):
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Webineer")
-    controller = AppController(app)
+    splash = show_splash_and_fade(app)
+
+    settings: Optional[SettingsManager] = None
+    try:
+        settings = SettingsManager()
+        if settings.get("play_intro_sound", "1") == "1":
+            volume = 70
+            try:
+                volume = int(settings.get("intro_volume", "70"))
+            except Exception:
+                volume = 70
+            play_intro_sound(volume_pct=max(0, min(100, volume)))
+    except Exception:
+        settings = None
+        play_intro_sound(volume_pct=70)
+
+    controller = AppController(app, settings=settings)
     controller.show_start()
+
+    if splash is not None:
+        target: Optional[QtWidgets.QWidget] = None
+        if controller.main_windows:
+            target = controller.main_windows[-1]
+        elif controller.start_window is not None:
+            target = controller.start_window
+
+        QTimer.singleShot(120, lambda s=splash, t=target: hide_splash_with_fade(s, t))
     return app.exec()
 
 
