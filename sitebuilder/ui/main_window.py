@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import webbrowser
 from typing import cast, Literal
 import shutil
 import tempfile
@@ -39,7 +40,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._debounce = QtCore.QTimer(self)
         self._debounce.setInterval(400)
         self._debounce.setSingleShot(True)
-        self._debounce.timeout.connect(self.update_preview)
+        # Do not auto-preview on debounce; keep timer for potential future use
+        self._debounce.timeout.connect(lambda: None)
 
         self._current_page_index: int = 0
 
@@ -75,10 +77,13 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_row = QtWidgets.QHBoxLayout()
         self.btn_add_page = QtWidgets.QPushButton("Add Page", left_panel)
         self.btn_remove_page = QtWidgets.QPushButton("Remove Page", left_panel)
+        self.btn_preview = QtWidgets.QPushButton("Preview", left_panel)
         self.btn_add_page.setMinimumHeight(32)
         self.btn_remove_page.setMinimumHeight(32)
+        self.btn_preview.setMinimumHeight(32)
         btn_row.addWidget(self.btn_add_page)
         btn_row.addWidget(self.btn_remove_page)
+        btn_row.addWidget(self.btn_preview)
         left_layout.addLayout(btn_row)
         # bottom breathing room
         left_layout.addStretch(1)
@@ -113,10 +118,11 @@ class MainWindow(QtWidgets.QMainWindow):
         right_layout.setContentsMargins(12, 12, 12, 12)
         right_layout.setSpacing(12)
 
-        # Preview controls: page selector and device size buttons
+        # Preview controls: page selector, device size buttons, and preview button
         preview_controls = QtWidgets.QHBoxLayout()
         preview_controls.setSpacing(8)
 
+        # Use the left-panel preview button only; add label here instead
         preview_controls.addWidget(QtWidgets.QLabel("Preview:"))
 
         # Page dropdown
@@ -163,7 +169,6 @@ class MainWindow(QtWidgets.QMainWindow):
         if bar is None:
             bar = QtWidgets.QMenuBar(self)
             self.setMenuBar(bar)
-
         file_menu = bar.addMenu("&File")
         act_new = QtGui.QAction("New Project", self)
         act_open = QtGui.QAction("Open Project…", self)
@@ -175,33 +180,29 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if file_menu is not None:
             file_menu.addActions([act_new, act_open, act_import])
-        if file_menu is not None:
             file_menu.addSeparator()
-        if file_menu is not None:
             file_menu.addActions([act_save, act_save_as])
-        if file_menu is not None:
             file_menu.addSeparator()
-        if file_menu is not None:
             file_menu.addAction(act_export)
-        if file_menu is not None:
             file_menu.addSeparator()
-        if file_menu is not None:
             file_menu.addAction(act_quit)
 
-        self.act_new = act_new
-        self.act_open = act_open
-        self.act_import = act_import
-        self.act_save = act_save
-        self.act_save_as = act_save_as
-        self.act_export = act_export
-        self.act_quit = act_quit
+            self.act_new = act_new
+            self.act_open = act_open
+            self.act_import = act_import
+            self.act_save = act_save
+            self.act_save_as = act_save_as
+            self.act_export = act_export
+            self.act_quit = act_quit
 
-        help_menu = bar.addMenu("&Help")
-        self.act_about = QtGui.QAction("About", self)
-        if help_menu is not None:
-            help_menu.addAction(self.act_about)
+            help_menu = bar.addMenu("&Help")
+            self.act_about = QtGui.QAction("About", self)
+            if help_menu is not None:
+                help_menu.addAction(self.act_about)
 
     def _bind_events(self) -> None:
+        # Only connect the preview button in the left panel (force preview)
+        self.btn_preview.clicked.connect(lambda: self.update_preview(True))
         self.btn_add_page.clicked.connect(self.add_page)
         self.btn_remove_page.clicked.connect(self.remove_page)
         self.pages_list.currentRowChanged.connect(
@@ -505,7 +506,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project.pages[row].html = self.html_editor.toPlainText()
         self.project.css = self.css_editor.toPlainText()
 
-    def update_preview(self) -> None:
+    def update_preview(self, force: bool = False) -> None:
+        # Only run preview when explicitly forced (button click)
+        if not force:
+            return
         if self.project is None:
             return
         self._flush_editors_to_model()
@@ -524,6 +528,10 @@ class MainWindow(QtWidgets.QMainWindow):
             page = self.project.pages[row]
             path = Path(self._preview_tmp) / page.filename
             self.preview.setUrl(QtCore.QUrl.fromLocalFile(str(path)))
+            try:
+                webbrowser.open(str(path))
+            except Exception:
+                pass
 
     # ---------------------------------------------------------------- Misc --
     def show_about(self) -> None:

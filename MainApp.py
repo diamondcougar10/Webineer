@@ -6683,7 +6683,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._debounce = QtCore.QTimer(self)
         self._debounce.setInterval(400)
         self._debounce.setSingleShot(True)
-        self._debounce.timeout.connect(self.update_preview)
+    # Do not auto-preview on debounce; keep timer for potential future use
+        self._debounce.timeout.connect(lambda: None)
         self._last_cover_palette_hash: str = ""
         self._last_cover_content_hash: str = ""
 
@@ -6748,8 +6749,10 @@ class MainWindow(QtWidgets.QMainWindow):
         header.addStretch()
         self.btn_add_page = QtWidgets.QPushButton("Add")
         self.btn_remove_page = QtWidgets.QPushButton("Remove")
+        self.btn_preview = QtWidgets.QPushButton("Preview")
         header.addWidget(self.btn_add_page)
         header.addWidget(self.btn_remove_page)
+        header.addWidget(self.btn_preview)
         left_layout.addLayout(header)
 
         self.pages_list = QtWidgets.QListWidget(left)
@@ -7421,6 +7424,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.css_editor.textChanged.connect(self._on_editor_changed)
         self.btn_add_page.clicked.connect(self.add_page)
         self.btn_remove_page.clicked.connect(self.remove_page)
+        self.btn_preview.clicked.connect(lambda: self.update_preview(True))
         self.btn_apply_theme.clicked.connect(self.apply_theme)
         self.btn_add_helpers.clicked.connect(self.add_css_helpers)
         self.btn_apply_gradient.clicked.connect(self.apply_gradient_helpers)
@@ -7718,7 +7722,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project.pages[index].html = self.html_editor.toPlainText()
         self.project.css = self.css_editor.toPlainText()
 
-    def update_preview(self) -> None:
+    def update_preview(self, force: bool = False) -> None:
+        # Only run preview when explicitly forced (button click)
+        if not force:
+            return
         self._flush_editors_to_model()
         if self._preview_tmp and os.path.isdir(self._preview_tmp):
             shutil.rmtree(self._preview_tmp, ignore_errors=True)
@@ -7731,6 +7738,10 @@ class MainWindow(QtWidgets.QMainWindow):
             page = self.project.pages[index]
             file_path = Path(self._preview_tmp) / page.filename
             self.preview.setUrl(QtCore.QUrl.fromLocalFile(str(file_path)))
+            try:
+                webbrowser.open(str(file_path))
+            except Exception:
+                pass
         self.status_bar.showMessage("Preview updated", 1500)
         self._maybe_render_cover()
 
