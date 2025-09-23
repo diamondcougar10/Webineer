@@ -219,8 +219,10 @@ COVERS_DIR.mkdir(parents=True, exist_ok=True)
 COVER_FULL_SIZE = QtCore.QSize(1280, 800)
 COVER_TILE_SIZE = QtCore.QSize(420, 260)
 
-SPLASH_IMAGE = Path(r"C:\Users\curph\OneDrive\Documents\GitHub\Webineer\Assets\SplashScreen.png")
-INTRO_SOUND = Path(r"C:\Users\curph\OneDrive\Documents\GitHub\Webineer\Assets\intro-sound-2-269294.mp3")
+SPLASH_IMAGE = Path(
+    r"C:\Users\curph\OneDrive\Documents\GitHub\Webineer\Assets\SplashScreen.png")
+INTRO_SOUND = Path(
+    r"C:\Users\curph\OneDrive\Documents\GitHub\Webineer\Assets\intro-sound-2-269294.mp3")
 
 
 class _AudioOnce:
@@ -269,7 +271,8 @@ def show_splash_and_fade(app: QtWidgets.QApplication) -> Optional[QtWidgets.QSpl
     except Exception:
         show = True
 
-    img = SPLASH_IMAGE if SPLASH_IMAGE.exists() else asset_path("Assets", "SplashScreen.png")
+    img = SPLASH_IMAGE if SPLASH_IMAGE.exists(
+    ) else asset_path("Assets", "SplashScreen.png")
     if not show or not img.exists():
         return None
 
@@ -9404,30 +9407,34 @@ def main() -> int:
     splash = show_splash_and_fade(app)
 
     settings: Optional[SettingsManager] = None
-    try:
-        settings = SettingsManager()
-        if settings.get("play_intro_sound", "1") == "1":
-            volume = 70
-            try:
-                volume = int(settings.get("intro_volume", "70"))
-            except Exception:
-                volume = 70
-            play_intro_sound(volume_pct=max(0, min(100, volume)))
-    except Exception:
-        settings = None
-        play_intro_sound(volume_pct=70)
+    volume = 70
 
-    controller = AppController(app, settings=settings)
-    controller.show_start()
+    def play_sound_delayed():
+        try:
+            nonlocal settings, volume
+            settings = SettingsManager()
+            if settings.get("play_intro_sound", "1") == "1":
+                try:
+                    volume = int(settings.get("intro_volume", "70"))
+                except Exception:
+                    volume = 70
+                play_intro_sound(volume_pct=max(0, min(100, volume)))
+        except Exception:
+            settings = None
+            play_intro_sound(volume_pct=70)
+    QTimer.singleShot(2000, play_sound_delayed)
 
-    if splash is not None:
+    def launch_main():
+        controller = AppController(app, settings=settings)
+        controller.show_start()
         target: Optional[QtWidgets.QWidget] = None
         if controller.main_windows:
             target = controller.main_windows[-1]
         elif controller.start_window is not None:
             target = controller.start_window
+        hide_splash_with_fade(splash, target)
 
-        QTimer.singleShot(120, lambda s=splash, t=target: hide_splash_with_fade(s, t))
+    QTimer.singleShot(3000, launch_main)
     return app.exec()
 
 
