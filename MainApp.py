@@ -5525,7 +5525,8 @@ class NewProjectWizard(QtWidgets.QDialog):
             "Tip: the location should be an empty folder where we'll keep exports and previews.")
         helper.setWordWrap(True)
         layout.addRow(helper)
-        last = self.settings.get("last_save_dir", str(Path.home()))
+        last = self.settings.get(
+            "last_save_dir", str(ensure_default_save_dir()))
         self.describe_location.setText(last)
         self.describe_name.textChanged.connect(self._update_template_preview)
         return page
@@ -5738,7 +5739,7 @@ class NewProjectWizard(QtWidgets.QDialog):
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Choose save location",
-            self.settings.get("last_save_dir", str(Path.home())),
+            self.settings.get("last_save_dir", str(ensure_default_save_dir())),
         )
         if directory:
             self.describe_location.setText(directory)
@@ -6001,6 +6002,21 @@ def generate_svg_placeholder(
         "</svg>"
     )
 
+
+def ensure_default_save_dir() -> Path:
+    """Return a Path for Documents/MyWebsites, creating it if necessary.
+
+    Falls back to the user's home directory if creation fails.
+    """
+    try:
+        home = Path.home()
+        docs = home / "Documents"
+        default_dir = docs / "MyWebsites"
+        default_dir.mkdir(parents=True, exist_ok=True)
+        return default_dir
+    except Exception:
+        return Path.home()
+
 # ---------------------------------------------------------------------------
 # Start window (launch hub)
 # ---------------------------------------------------------------------------
@@ -6226,7 +6242,7 @@ class StartWindow(QtWidgets.QMainWindow):
         self.create_location.setText(
             self.settings.get(
                 "last_save_dir", str(
-                    Path.home())))
+                    ensure_default_save_dir())))
         browse = QtWidgets.QPushButton("Browse…", form_group)
         browse.clicked.connect(self._browse_save_location)
         location_layout = QtWidgets.QHBoxLayout()
@@ -6502,7 +6518,7 @@ class StartWindow(QtWidgets.QMainWindow):
         directory = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Choose where to save",
-            self.settings.get("last_save_dir", str(Path.home())),
+            self.settings.get("last_save_dir", str(ensure_default_save_dir())),
         )
         if directory:
             self.create_location.setText(directory)
@@ -6631,7 +6647,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Open project",
-            self.settings.get("last_open_dir", str(Path.home())),
+            self.settings.get("last_open_dir", str(ensure_default_save_dir())),
             "Webineer Project (*.siteproj)",
         )
         if path:
@@ -6648,7 +6664,7 @@ class StartWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Import project",
-            self.settings.get("last_open_dir", str(Path.home())),
+            self.settings.get("last_open_dir", str(ensure_default_save_dir())),
             "Webineer Project (*.siteproj)",
         )
         if path:
@@ -6861,6 +6877,20 @@ class MainWindow(QtWidgets.QMainWindow):
         suffix = f" ({self.project_path.name})" if self.project_path else ""
         dirty = " •" if getattr(self, "_dirty", False) else ""
         self.setWindowTitle(f"{APP_TITLE} — {name}{suffix}{dirty}")
+
+    def _ensure_default_save_dir(self) -> Path:
+        """Ensure and return the default save directory: Documents/MyWebsites.
+
+        Falls back to the user's home directory if creation fails.
+        """
+        try:
+            home = Path.home()
+            docs = home / "Documents"
+            default_dir = docs / "MyWebsites"
+            default_dir.mkdir(parents=True, exist_ok=True)
+            return default_dir
+        except Exception:
+            return Path.home()
 
     def start_tour(self) -> None:
         """Start the interactive onboarding tour for this main window.
@@ -8308,7 +8338,8 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     def _browse_background_image(self) -> None:
-        start_dir = self.settings.get("last_background_dir", str(Path.home()))
+        start_dir = self.settings.get(
+            "last_background_dir", str(ensure_default_save_dir()))
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Choose background image",
@@ -8993,7 +9024,8 @@ class MainWindow(QtWidgets.QMainWindow):
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
             self,
             "Add images",
-            self.settings.get("last_asset_dir", str(Path.home())),
+            self.settings.get("last_asset_dir", str(
+                ensure_default_save_dir())),
             "Images (*.png *.jpg *.jpeg *.gif *.svg)",
         )
         if paths:
@@ -9184,7 +9216,7 @@ class MainWindow(QtWidgets.QMainWindow):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
             "Open project",
-            self.settings.get("last_open_dir", str(Path.home())),
+            self.settings.get("last_open_dir", str(ensure_default_save_dir())),
             "Webineer Project (*.siteproj)",
         )
         if not path:
@@ -9240,10 +9272,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_dirty(False)
 
     def save_project_as(self) -> None:
+        default_save = (self.project_path or (
+            self._ensure_default_save_dir() / "MySite.siteproj"))
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save project as",
-            str(self.project_path or Path.home() / "MySite.siteproj"),
+            str(default_save),
             "Webineer Project (*.siteproj)",
         )
         if not path:
@@ -9261,7 +9295,7 @@ class MainWindow(QtWidgets.QMainWindow):
         out_dir = QtWidgets.QFileDialog.getExistingDirectory(
             self,
             "Export site",
-            self.project.output_dir or str(Path.home()),
+            self.project.output_dir or str(self._ensure_default_save_dir()),
         )
         if not out_dir:
             return
