@@ -30,7 +30,7 @@ DisableProgramGroupPage=no
 ; ----- Look & Feel -----
 WizardStyle=modern
 ; Top banner (PNG is OK; if it ever errors, export to BMP and reference that)
-WizardImageFile={#SourcePath}\Assets\installerthemeBanner.png
+WizardImageFile={#SourcePath}\Assets\installerthemeBanner.bpm
 SetupIconFile={#SourcePath}\icon.ico
 
 Compression=lzma

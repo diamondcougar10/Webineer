@@ -50,6 +50,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._bind_events()
 
         self.new_project_bootstrap()
+        try:
+            QtCore.QTimer.singleShot(600, self.maybe_show_welcome_and_tour)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ UI --
     def _build_ui(self) -> None:
@@ -89,28 +93,28 @@ class MainWindow(QtWidgets.QMainWindow):
         left_layout.addStretch(1)
 
         # --- Center: editors/assets tabs --------------------------------------
-        mid_tabs = QtWidgets.QTabWidget(self)
-        mid_tabs.setDocumentMode(True)
-        mid_tabs.setContentsMargins(12, 12, 12, 12)      # extra buffer
+        self.mid_tabs = QtWidgets.QTabWidget(self)
+        self.mid_tabs.setDocumentMode(True)
+        self.mid_tabs.setContentsMargins(12, 12, 12, 12)      # extra buffer
 
-        self.html_editor = QtWidgets.QPlainTextEdit(mid_tabs)
+        self.html_editor = QtWidgets.QPlainTextEdit(self.mid_tabs)
         self.html_editor.setPlaceholderText(
             "<h2>Hello</h2>\n<p>Edit your page HTML here.</p>")
         self.html_editor.setMinimumHeight(120)
 
-        self.css_editor = QtWidgets.QPlainTextEdit(mid_tabs)
+        self.css_editor = QtWidgets.QPlainTextEdit(self.mid_tabs)
         self.css_editor.setPlaceholderText("/* Global site CSS lives here */")
         self.css_editor.setMinimumHeight(80)
 
-        self.assets_view = QtWidgets.QListWidget(mid_tabs)
+        self.assets_view = QtWidgets.QListWidget(self.mid_tabs)
         self.assets_view.setSelectionMode(
             QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self.assets_view.setUniformItemSizes(True)
         self.assets_view.setMinimumHeight(80)
 
-        mid_tabs.addTab(self.html_editor, "Page HTML")
-        mid_tabs.addTab(self.css_editor, "Styles (CSS)")
-        mid_tabs.addTab(self.assets_view, "Assets")
+        self.mid_tabs.addTab(self.html_editor, "Page HTML")
+        self.mid_tabs.addTab(self.css_editor, "Styles (CSS)")
+        self.mid_tabs.addTab(self.assets_view, "Assets")
 
         # --- Right: live preview ----------------------------------------------
         right_panel = QtWidgets.QWidget(self)
@@ -158,11 +162,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_device = 0
 
         splitter.addWidget(left_panel)
-        splitter.addWidget(mid_tabs)
+        splitter.addWidget(self.mid_tabs)
         splitter.addWidget(right_panel)
         # slightly wider left column
         splitter.setSizes([260, 560, 520])
         self.status = self.statusBar()
+        # Helpful hover tooltips
+        try:
+            self.pages_list.setToolTip(
+                "Pages in your site. Select one to edit or preview.")
+            self.btn_add_page.setToolTip("Add a new page to your site.")
+            self.btn_remove_page.setToolTip("Remove the selected page.")
+            self.btn_preview.setToolTip(
+                "Open the current page preview in your default browser.")
+            self.html_editor.setToolTip("Edit the HTML of the selected page.")
+            self.css_editor.setToolTip("Global site CSS.")
+            self.assets_view.setToolTip(
+                "Assets included with your site (images, etc.).")
+            self.page_combo.setToolTip(
+                "Choose which page to show in the preview.")
+            self.device_desktop.setToolTip("Preview at desktop size.")
+            self.device_tablet.setToolTip("Preview at tablet size.")
+            self.device_mobile.setToolTip("Preview at mobile size.")
+        except Exception:
+            pass
 
     def _build_menu(self) -> None:
         bar = self.menuBar()
@@ -199,6 +222,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.act_about = QtGui.QAction("About", self)
             if help_menu is not None:
                 help_menu.addAction(self.act_about)
+                # Start Tour action (invoke onboarding tour)
+                try:
+                    self.act_start_tour = QtGui.QAction("Start Tour", self)
+                    help_menu.addAction(self.act_start_tour)
+                    self.act_start_tour.triggered.connect(self.start_tour)
+                except Exception:
+                    pass
 
     def _bind_events(self) -> None:
         # Connect the preview button in the left panel (open external browser)
@@ -610,6 +640,64 @@ class MainWindow(QtWidgets.QMainWindow):
             "  </div>\n"
             "</section>\n"
         )
+
+    def maybe_show_welcome_and_tour(self) -> None:
+        try:
+            from onboarding import WelcomeTourDialog, TourGuide, TourStep
+        except Exception:
+            return
+        try:
+            s = QtCore.QSettings("SiteBuilder", "PyQtSiteBuilder")
+            seen = s.value("onboarding/has_seen", "0")
+            if str(seen) == "1":
+                return
+            dlg = WelcomeTourDialog(self)
+            res = dlg.exec()
+            if dlg.dont_show.isChecked() or res != QtWidgets.QDialog.DialogCode.Accepted:
+                try:
+                    s.setValue("onboarding/has_seen", True)
+                except Exception:
+                    pass
+                return
+            try:
+                self.start_tour()
+            except Exception:
+                pass
+            try:
+                s.setValue("onboarding/has_seen", True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def start_tour(self) -> None:
+        try:
+            from onboarding import TourGuide, TourStep
+        except Exception:
+            return
+
+        def show_html_tab(): self.mid_tabs.setCurrentIndex(0)
+        def show_css_tab():  self.mid_tabs.setCurrentIndex(1)
+        def show_assets():   self.mid_tabs.setCurrentIndex(2)
+
+        steps = [
+            TourStep(
+                "Pages panel", "This list contains your pages. Select to edit.", self.pages_list),
+            TourStep("Add a page", "Create a new page here.",
+                     self.btn_add_page),
+            TourStep("Page HTML", "Edit the HTML of the selected page.",
+                     self.html_editor, on_before=show_html_tab),
+            TourStep("Styles (CSS)", "Global CSS for your site.",
+                     self.css_editor, on_before=show_css_tab),
+            TourStep("Assets", "Manage images and other assets.",
+                     self.assets_view, on_before=show_assets),
+            TourStep("Preview device", "Switch preview sizes here.",
+                     self.device_desktop),
+            TourStep("Live preview",
+                     "See your page rendered as it will appear.", self.preview),
+        ]
+        guide = TourGuide(self, steps)
+        guide.start()
 
     def _load_page_into_editor(self, index: int) -> None:
         if self.project is None or not (0 <= index < len(self.project.pages)):

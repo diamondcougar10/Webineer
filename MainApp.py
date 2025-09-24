@@ -415,6 +415,10 @@ class SettingsManager:
         if self._settings.get("intro_volume", "") == "":
             self._settings["intro_volume"] = "70"
             changed = True
+        # onboarding flag: has the user seen the guided tour?
+        if self._settings.get("has_seen_onboarding", "") == "":
+            self._settings["has_seen_onboarding"] = "0"
+            changed = True
 
         if changed:
             try:
@@ -6065,6 +6069,78 @@ class StartWindow(QtWidgets.QMainWindow):
         self.nav_list.currentTextChanged.connect(self._on_nav_changed)
         self._on_nav_changed("Create New")
         self.refresh_recents()
+        # show welcome/tour if first run
+        try:
+            from onboarding import WelcomeTourDialog, TourGuide, TourStep
+            QtCore.QTimer.singleShot(400, self.maybe_show_welcome_and_tour)
+        except Exception:
+            pass
+
+    def maybe_show_welcome_and_tour(self) -> None:
+        try:
+            sm = getattr(self, "settings", None)
+            if sm is None:
+                return
+            seen = sm.get("has_seen_onboarding", "0")
+            if str(seen) == "1":
+                return
+            try:
+                from onboarding import WelcomeTourDialog
+            except Exception:
+                return
+            dlg = WelcomeTourDialog(self)
+            res = dlg.exec()
+            if dlg.dont_show.isChecked() or res != QtWidgets.QDialog.DialogCode.Accepted:
+                try:
+                    sm.set("has_seen_onboarding", "1")
+                except Exception:
+                    try:
+                        setter = getattr(sm, "setValue", None)
+                        if callable(setter):
+                            setter("has_seen_onboarding", True)
+                    except Exception:
+                        pass
+                return
+            # Start the tour and persist
+            try:
+                self.start_tour()
+            except Exception:
+                pass
+            try:
+                sm.set("has_seen_onboarding", "1")
+            except Exception:
+                try:
+                    setter = getattr(sm, "setValue", None)
+                    if callable(setter):
+                        setter("has_seen_onboarding", True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def start_tour(self) -> None:
+        try:
+            from onboarding import TourGuide, TourStep
+        except Exception:
+            return
+
+        def goto_create(): self.nav_list.setCurrentRow(0)
+        def goto_recent(): self.nav_list.setCurrentRow(3)
+        def goto_learn(): self.nav_list.setCurrentRow(4)
+        steps = [
+            TourStep(
+                "Navigation", "Switch between Create, Open, Import, Recent and Learn.", self.nav_list),
+            TourStep("Create New", "Pick a template and customize your theme here.",
+                     lambda: self.pages.get("Create New"), on_before=goto_create),
+            TourStep("Create", "Click to create a project with your selections.",
+                     self.btn_command_create),
+            TourStep("Recent", "Access your recent projects here.",
+                     lambda: self.pages.get("Recent"), on_before=goto_recent),
+            TourStep("Learn", "Open guides and tips.",
+                     lambda: self.pages.get("Learn"), on_before=goto_learn),
+        ]
+        guide = TourGuide(self, steps)
+        guide.start()
 
     # UI builders -------------------------------------------------------
     def _wrap_scroll(self, widget: QtWidgets.QWidget) -> QtWidgets.QScrollArea:
@@ -6786,6 +6862,72 @@ class MainWindow(QtWidgets.QMainWindow):
         dirty = " •" if getattr(self, "_dirty", False) else ""
         self.setWindowTitle(f"{APP_TITLE} — {name}{suffix}{dirty}")
 
+    def start_tour(self) -> None:
+        """Start the interactive onboarding tour for this main window.
+
+        This method is defensive: it imports the onboarding module lazily
+        and builds a short list of steps using attributes that may not
+        exist in every runtime configuration. Any errors are swallowed
+        to avoid breaking the rest of the app.
+        """
+        try:
+            from onboarding import TourGuide, TourStep
+        except Exception:
+            return
+
+        # Resolve targets defensively to satisfy static analyzers
+        pages_list = getattr(self, "pages_list", None)
+        btn_add_page = getattr(self, "btn_add_page", None)
+        tab_editors = getattr(self, "tab_editors", None)
+        design_tab = getattr(self, "design_tab", None)
+        assets_tab = getattr(self, "assets_tab", None)
+        preview = getattr(self, "preview", None)
+
+        def goto_editors() -> None:
+            if tab_editors is not None:
+                try:
+                    tab_editors.setCurrentIndex(0)
+                except Exception:
+                    pass
+
+        def goto_design() -> None:
+            if tab_editors is not None and design_tab is not None:
+                try:
+                    ix = tab_editors.indexOf(design_tab)
+                    if ix >= 0:
+                        tab_editors.setCurrentIndex(ix)
+                except Exception:
+                    pass
+
+        steps = []
+        if pages_list is not None:
+            steps.append(TourStep(
+                "Pages", "Manage site pages here. Select a page to edit or preview.", pages_list))
+        if btn_add_page is not None:
+            steps.append(
+                TourStep("Add Page", "Create a new page for your site.", btn_add_page))
+        if tab_editors is not None:
+            steps.append(TourStep("Editors", "Edit page HTML or global CSS.",
+                         lambda: tab_editors, on_before=goto_editors))
+        if design_tab is not None:
+            steps.append(TourStep("Design", "Adjust theme, palette and helpers in the Design tab.",
+                         lambda: design_tab, on_before=goto_design))
+        if assets_tab is not None:
+            steps.append(
+                TourStep("Assets", "Manage images and other assets here.", assets_tab))
+        if preview is not None:
+            steps.append(TourStep(
+                "Preview", "Preview the current page in the embedded preview.", preview))
+
+        if not steps:
+            return
+
+        try:
+            guide = TourGuide(self, steps)
+            guide.start()
+        except Exception:
+            pass
+
     def _build_ui(self) -> None:
         splitter = QtWidgets.QSplitter(self)
         splitter.setOrientation(Qt.Orientation.Horizontal)
@@ -7456,6 +7598,13 @@ class MainWindow(QtWidgets.QMainWindow):
             help_menu.addAction(self.act_about)
             help_menu.addAction(self.act_get_started)
             help_menu.addAction(self.act_ai)
+            # Start Tour action
+            self.act_start_tour = QtGui.QAction("Start Tour", self)
+            help_menu.addAction(self.act_start_tour)
+            try:
+                self.act_start_tour.triggered.connect(self.start_tour)
+            except Exception:
+                pass
             help_menu.addSeparator()
             self.act_replay_intro = QtGui.QAction("Replay intro sound", self)
 
@@ -9504,9 +9653,27 @@ def main() -> int:
             play_intro_sound(volume_pct=70)
     QTimer.singleShot(2000, play_sound_delayed)
 
+    # Honor --fullscreen CLI flag or WEBINEER_FULLSCREEN env var
+    fullscreen = "--fullscreen" in sys.argv or os.environ.get(
+        "WEBINEER_FULLSCREEN", "0") in ("1", "true", "True")
+
     def launch_main():
         controller = AppController(app, settings=settings)
         controller.show_start()
+        # If fullscreen requested, show any main windows fullscreen when they appear
+        if fullscreen:
+            try:
+                # If start window launches main windows, iterate those
+                for w in controller.main_windows:
+                    try:
+                        w.showFullScreen()
+                    except Exception:
+                        try:
+                            w.showMaximized()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
         target: Optional[QtWidgets.QWidget] = None
         if controller.main_windows:
             target = controller.main_windows[-1]
