@@ -40,8 +40,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._debounce = QtCore.QTimer(self)
         self._debounce.setInterval(400)
         self._debounce.setSingleShot(True)
-        # Do not auto-preview on debounce; keep timer for potential future use
-        self._debounce.timeout.connect(lambda: None)
+        # Debounced auto-preview: call update_preview when timer fires
+        self._debounce.timeout.connect(self.update_preview)
 
         self._current_page_index: int = 0
 
@@ -201,8 +201,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 help_menu.addAction(self.act_about)
 
     def _bind_events(self) -> None:
-        # Only connect the preview button in the left panel (force preview)
-        self.btn_preview.clicked.connect(lambda: self.update_preview(True))
+        # Connect the preview button in the left panel (open external browser)
+        self.btn_preview.clicked.connect(
+            lambda: self.update_preview(open_external=True))
         self.btn_add_page.clicked.connect(self.add_page)
         self.btn_remove_page.clicked.connect(self.remove_page)
         self.pages_list.currentRowChanged.connect(
@@ -506,14 +507,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project.pages[row].html = self.html_editor.toPlainText()
         self.project.css = self.css_editor.toPlainText()
 
-    def update_preview(self, force: bool = False) -> None:
-        # Only run preview when explicitly forced (button click)
-        if not force:
-            return
+    def update_preview(self, open_external: bool = False) -> None:
         if self.project is None:
             return
         self._flush_editors_to_model()
 
+        # rebuild the temporary output
         if self._preview_tmp and os.path.isdir(self._preview_tmp):
             shutil.rmtree(self._preview_tmp, ignore_errors=True)
         self._preview_tmp = tempfile.mkdtemp(prefix="sitebuilder_preview_")
@@ -521,6 +520,7 @@ class MainWindow(QtWidgets.QMainWindow):
         ).parent.parent / "core" / "templates"
         generator.render_site(self.project, self._preview_tmp, templates_dir)
 
+        # show the currently selected page
         row = self.pages_list.currentRow()
         if row < 0 and self.project.pages:
             row = 0
@@ -528,8 +528,42 @@ class MainWindow(QtWidgets.QMainWindow):
             page = self.project.pages[row]
             path = Path(self._preview_tmp) / page.filename
             self.preview.setUrl(QtCore.QUrl.fromLocalFile(str(path)))
+            if open_external:
+                try:
+                    webbrowser.open(str(path))
+                except Exception:
+                    pass
+            # Nudge the view to avoid an initial white frame on startup.
             try:
-                webbrowser.open(str(path))
+                self.preview.reload()
+            except Exception:
+                pass
+            QtCore.QTimer.singleShot(150, lambda: getattr(
+                self.preview, 'reload', lambda: None)())
+            try:
+                if self.status is not None:
+                    self.status.showMessage(f"Preview: {str(path)}", 2500)
+            except Exception:
+                pass
+            # Also attempt to load the generated HTML directly into the view
+            try:
+                html = path.read_text(encoding='utf-8')
+                base = QtCore.QUrl.fromLocalFile(
+                    str(path.parent) + os.path.sep)
+                self.preview.setHtml(html, base)
+            except Exception:
+                pass
+            try:
+                def _on_load(ok: bool) -> None:
+                    if self.status is not None:
+                        self.status.showMessage(
+                            "Preview loaded" if ok else "Preview failed to load", 3000)
+                    try:
+                        self.preview.loadFinished.disconnect(_on_load)
+                    except Exception:
+                        pass
+
+                self.preview.loadFinished.connect(_on_load)
             except Exception:
                 pass
 

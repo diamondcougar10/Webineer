@@ -219,6 +219,58 @@ COVERS_DIR.mkdir(parents=True, exist_ok=True)
 COVER_FULL_SIZE = QtCore.QSize(1280, 800)
 COVER_TILE_SIZE = QtCore.QSize(420, 260)
 
+# Application build/version marker used to decide when to reset app data on upgrade
+BUILD_VERSION = "1.0.0"
+INSTALL_MARK = app_data_dir() / ".installed_version"
+
+
+def clear_app_data() -> None:
+    """Remove app data safely: settings, recents, caches. Never touches user projects.
+
+    This removes only files and folders under the app data directory (LOCALAPPDATA\\Webineer).
+    It intentionally does not touch user-created projects or any files outside that folder.
+    """
+    to_delete_files = [RECENTS_PATH, SETTINGS_PATH]
+    to_delete_dirs = [PREVIEWS_DIR, COVERS_DIR, app_data_dir() / "logs"]
+
+    for p in to_delete_files:
+        try:
+            if p.exists():
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    for d in to_delete_dirs:
+        try:
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            pass
+
+    # Recreate empty folders expected by the app
+    PREVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+    COVERS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def reset_if_new_install_or_version() -> None:
+    """Clear app data if this is a new install or a version change.
+
+    Compares the stored INSTALL_MARK (if present) to the current BUILD_VERSION.
+    If they differ, perform a one-shot clear and write the current version.
+    """
+    try:
+        previous = INSTALL_MARK.read_text(
+            encoding="utf-8").strip() if INSTALL_MARK.exists() else ""
+    except Exception:
+        previous = ""
+    if previous != BUILD_VERSION:
+        clear_app_data()
+        try:
+            INSTALL_MARK.write_text(BUILD_VERSION, encoding="utf-8")
+        except Exception:
+            pass
+
+
 SPLASH_IMAGE = Path(
     r"C:\Users\curph\OneDrive\Documents\GitHub\Webineer\Assets\SplashScreen.png")
 INTRO_SOUND = Path(
@@ -6683,8 +6735,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._debounce = QtCore.QTimer(self)
         self._debounce.setInterval(400)
         self._debounce.setSingleShot(True)
-    # Do not auto-preview on debounce; keep timer for potential future use
-        self._debounce.timeout.connect(lambda: None)
+        # Debounced auto-preview: call update_preview when timer fires
+        self._debounce.timeout.connect(self.update_preview)
         self._last_cover_palette_hash: str = ""
         self._last_cover_content_hash: str = ""
 
@@ -7424,7 +7476,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.css_editor.textChanged.connect(self._on_editor_changed)
         self.btn_add_page.clicked.connect(self.add_page)
         self.btn_remove_page.clicked.connect(self.remove_page)
-        self.btn_preview.clicked.connect(lambda: self.update_preview(True))
+        self.btn_preview.clicked.connect(
+            lambda: self.update_preview(open_external=True))
         self.btn_apply_theme.clicked.connect(self.apply_theme)
         self.btn_add_helpers.clicked.connect(self.add_css_helpers)
         self.btn_apply_gradient.clicked.connect(self.apply_gradient_helpers)
@@ -7722,9 +7775,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.project.pages[index].html = self.html_editor.toPlainText()
         self.project.css = self.css_editor.toPlainText()
 
-    def update_preview(self, force: bool = False) -> None:
-        # Only run preview when explicitly forced (button click)
-        if not force:
+    def update_preview(self, open_external: bool = False) -> None:
+        if not self.project:
             return
         self._flush_editors_to_model()
         if self._preview_tmp and os.path.isdir(self._preview_tmp):
@@ -7738,10 +7790,11 @@ class MainWindow(QtWidgets.QMainWindow):
             page = self.project.pages[index]
             file_path = Path(self._preview_tmp) / page.filename
             self.preview.setUrl(QtCore.QUrl.fromLocalFile(str(file_path)))
-            try:
-                webbrowser.open(str(file_path))
-            except Exception:
-                pass
+            if open_external:
+                try:
+                    webbrowser.open(str(file_path))
+                except Exception:
+                    pass
         self.status_bar.showMessage("Preview updated", 1500)
         self._maybe_render_cover()
 
@@ -9413,6 +9466,22 @@ class AppController(QtCore.QObject):
 
 
 def main() -> int:
+    # Optional: tag AppUserModelID so taskbar pinning groups properly
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "Webineer.WebApp")
+        except Exception:
+            pass
+
+    # Fast, one-shot post-install reset (used by installer)
+    if "--reset-appdata" in sys.argv:
+        clear_app_data()
+
+    # Version-aware reset (runs on every startup; clears only when version changed)
+    reset_if_new_install_or_version()
+
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Webineer")
     splash = show_splash_and_fade(app)

@@ -66,8 +66,19 @@ Source: "Assets\InstllerWelcomeScreen.png"; Flags: dontcopy
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[InstallDelete]
+Type: files;           Name: "{localappdata}\Webineer\recents.json"
+Type: files;           Name: "{localappdata}\Webineer\settings.json"
+Type: filesandordirs;  Name: "{localappdata}\Webineer\Previews"
+Type: filesandordirs;  Name: "{localappdata}\Webineer\Covers"
+Type: filesandordirs;  Name: "{localappdata}\Webineer\logs"
+
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Tasks: startafterinstall; Flags: nowait postinstall skipifsilent
+; Run as the logged-in (original) user so it wipes *their* app data
+Filename: "{app}\{#MyAppExeName}"; \
+  Parameters: "--reset-appdata"; \
+  RunAsOriginalUser: yes; \
+  Flags: skipifsilent nowait postinstall
 
 ; ==============================================================
 ; Code: Draw a full-page background on Welcome and Finished pages
